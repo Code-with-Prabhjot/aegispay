@@ -247,3 +247,19 @@ class SlaContractResponse(BaseModel):
         if self.budget_usd is None and self.budget_micros is not None:
             self.budget_usd = f"{Decimal(self.budget_micros) / Decimal(1_000_000):.2f}"
         return self
+
+
+class ArbitrationReport(BaseModel):
+    """Result of multi-vector SLA verification arbiter."""
+    agreement_id: str = Field(..., description="SLA contract agreement identifier")
+    s_pytest: float = Field(..., ge=0.0, le=1.0, description="Test suite pass ratio [0.0, 1.0]")
+    s_ast: float = Field(..., ge=0.0, le=1.0, description="AST security scan score (1.0 clean, 0.0 violated)")
+    s_semantic: float = Field(..., ge=0.0, le=1.0, description="Semantic / rubric evaluation score [0.0, 1.0]")
+    composite_score: float = Field(..., ge=0.0, le=1.0, description="Final weighted composite score S in [0.0, 1.0]")
+    passed_tests: int = Field(..., ge=0, description="Number of passing unit tests")
+    total_tests: int = Field(..., ge=0, description="Total number of evaluated unit tests")
+    ast_safe: bool = Field(..., description="Whether source code passed AST security checks")
+    ast_violations: list[str] = Field(default_factory=list, description="List of detected AST violations")
+    stdout: str = Field(default="", description="Captured test runner stdout/stderr")
+    settlement: SettlementSplitResult = Field(..., description="Calculated financial settlement split")
+
