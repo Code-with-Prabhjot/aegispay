@@ -10,3 +10,17 @@
 
 ## Architecture Overview
 AegisPay enables autonomous AI agents to initiate, hold, arbitrate, and disburse escrow funds conditionally based on cryptographic proof-of-work and dynamic verification gates.
+
+## Running the backend
+
+```bash
+uv venv .venv && uv pip install -r requirements.txt   # or python -m venv + pip
+cp .env.example .env                                    # PAYPAL_MODE=mock runs fully offline
+.venv/bin/uvicorn backend.app.main:app --reload         # http://localhost:8000/docs
+.venv/bin/python -m pytest -q
+```
+
+State is stored in SQLite (`DATABASE_URL`, default `sqlite:///./aegispay.db`; the Postgres-compatible DDL is `backend/db/schema.sql`).
+Try the demo without PayPal credentials: `curl -X POST localhost:8000/api/v1/demo/scenarios/clean_pass` (also `partial_defect`, `malicious_injection`), then `GET /api/v1/ledger`.
+Routes (`/api/v1`): `GET /health`, `POST|GET /contracts`, `GET /contracts/{id}`, `POST /contracts/{id}/submit`, `POST /contracts/{id}/check-expiry`, `POST /contracts/{id}/payout/retry`, `POST /demo/scenarios/{name}`, `GET /ledger`, `POST /webhooks/paypal`.
+
