@@ -25,13 +25,13 @@ class Settings(BaseSettings):
     )
     PAYPAL_MODE: str = Field(
         default="sandbox",
-        description="PayPal operational mode: 'sandbox' or 'live'",
+        description="PayPal operational mode: 'mock' (offline), 'sandbox' or 'live'",
     )
 
     # Database connection string
     DATABASE_URL: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/aegispay",
-        description="PostgreSQL connection URL",
+        default="sqlite:///./aegispay.db",
+        description="Database URL (sqlite: for dev/tests; schema in backend/db/schema.sql is Postgres-compatible)",
     )
 
     # Fee Structure & Limits (in integer micro-dollars or basis points)
@@ -96,11 +96,16 @@ class Settings(BaseSettings):
         return self.PAYPAL_MODE.strip().lower() == "sandbox"
 
     @property
+    def is_mock(self) -> bool:
+        """True when PAYPAL_MODE=mock (offline PayPal simulation)."""
+        return self.PAYPAL_MODE.strip().lower() == "mock"
+
+    @property
     def paypal_base_url(self) -> str:
         """Returns the appropriate PayPal REST API base URL."""
         return (
             "https://api-m.sandbox.paypal.com"
-            if self.is_sandbox
+            if (self.is_sandbox or self.is_mock)
             else "https://api-m.paypal.com"
         )
 

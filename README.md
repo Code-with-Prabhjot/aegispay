@@ -31,3 +31,16 @@ npm run dev                  # http://localhost:3000
 The dashboard polls the backend every 2s. If the API is unreachable it shows a "Backend offline" banner with a
 "Use demo data" button that switches to deterministic fixtures (`frontend/src/lib/fixtures.ts`). All API calls live in
 `frontend/src/lib/api.ts`. Production check: `npm run build && npm run lint`.
+## Running the backend
+
+```bash
+uv venv .venv && uv pip install -r requirements.txt   # or python -m venv + pip
+cp .env.example .env                                    # PAYPAL_MODE=mock runs fully offline
+.venv/bin/uvicorn backend.app.main:app --reload         # http://localhost:8000/docs
+.venv/bin/python -m pytest -q
+```
+
+State is stored in SQLite (`DATABASE_URL`, default `sqlite:///./aegispay.db`; the Postgres-compatible DDL is `backend/db/schema.sql`).
+Try the demo without PayPal credentials: `curl -X POST localhost:8000/api/v1/demo/scenarios/clean_pass` (also `partial_defect`, `malicious_injection`), then `GET /api/v1/ledger`.
+Routes (`/api/v1`): `GET /health`, `POST|GET /contracts`, `GET /contracts/{id}`, `POST /contracts/{id}/submit`, `POST /contracts/{id}/check-expiry`, `POST /contracts/{id}/payout/retry`, `POST /demo/scenarios/{name}`, `GET /ledger`, `POST /webhooks/paypal`.
+
