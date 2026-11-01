@@ -19,7 +19,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 | 8 | API | Offline mock PayPal mode (deterministic fake IDs) so demo runs without credentials | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
 | 9 | Arbiter | Docker `--network none` runner + `sandbox/Dockerfile`, falls back to subprocess when Docker unavailable | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | Not verified against a live Docker daemon |
 | 10 | Arbiter | LLM semantic judge (pluggable, falls back to heuristic rubric when no API key) | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | Needs an API key to use for real |
-| 11 | Frontend | Next.js 14 dashboard scaffold, AG Grid ledger, FSM timeline, 3-scenario demo buttons | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
+| 11 | Frontend | Next.js 14 dashboard scaffold, AG Grid ledger, FSM timeline, 3-scenario demo buttons | ✅ | Claude (Sonnet agent) | wip/frontend | built against assumed API contract in src/lib/api.ts; verify once backend merges |
 | 12 | PayPal | Live sandbox wiring: create sandbox accounts, fill `.env`, register webhook, end-to-end run | 🔒 | | | Needs PayPal developer login |
 | 13 | PayPal | Postman collection export for the API | ⬜ | | | |
 | 14 | Frontend | `@paypal/react-paypal-js` Smart Payment Buttons | 🔒 | | | Needs sandbox client ID |
@@ -28,3 +28,4 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 
 ## Changelog
 - 2026-11-01 — Tracker created. Branch `feat/backend-api-and-sandbox` started for tasks 5–11.
+- 2026-11-01 — Frontend (task 11) built on `wip/frontend`: Mission Control, AG Grid ledger, FSM timeline, double-entry panel, offline demo-data mode.

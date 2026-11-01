@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #0b1020;
+  color: #e2e8f0;
+}
+.ag-theme-quartz-dark {
+  --ag-background-color: #0f172a;
+  --ag-header-background-color: #111c36;
+}
