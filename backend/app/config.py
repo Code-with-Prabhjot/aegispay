@@ -3,7 +3,7 @@ AegisPay Configuration Module
 Production-grade Pydantic v2 Settings for PayPal Escrow Engine and Settlement.
 """
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     PAYPAL_MODE: str = Field(
         default="sandbox",
         description="PayPal operational mode: 'mock' (offline), 'sandbox' or 'live'",
+    )
+    PAYPAL_WEBHOOK_MOCK_BYPASS: bool = Field(
+        default=False,
+        description="Skip webhook signature verification (local pytest runs only; rejected in live mode)",
     )
 
     # Database connection string
@@ -89,6 +93,12 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def reject_bypass_outside_test_modes(self) -> "Settings":
+        if self.PAYPAL_WEBHOOK_MOCK_BYPASS and not (self.is_sandbox or self.is_mock):
+            raise ValueError("PAYPAL_WEBHOOK_MOCK_BYPASS is only allowed with PAYPAL_MODE=mock or sandbox")
+        return self
 
     @property
     def is_sandbox(self) -> bool:
