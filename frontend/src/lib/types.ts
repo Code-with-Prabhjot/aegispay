@@ -43,7 +43,7 @@ export const TERMINAL_STATES: FsmState[] = [
   "PAYOUT_FAILED_REVERSED",
 ];
 
-/** Names accepted by POST /demo/scenarios/{name} (backend scenario_presets.SCENARIOS keys). */
+/** Scenario keys (UI/fixtures). api.runScenario lowercases them; the backend route is case-insensitive. */
 export type ScenarioName = "CLEAN_PASS" | "PARTIAL_DEFECT" | "MALICIOUS_INJECTION";
 
 export type SettlementDecision = "FULL_CAPTURE" | "PARTIAL_CAPTURE" | "VOID_AUTHORIZATION";
@@ -94,7 +94,7 @@ export interface SlaContractResponse {
   created_at: string;
   updated_at: string;
   budget_usd?: string | null;
-  /** Transition history; included on GET /contracts/{id}, optionally in list. */
+  /** Derived by api.ts from backend `transitions`; only on detail responses. */
   history?: FsmTransition[];
   arbitration_report?: ArbitrationReport | null;
 }
@@ -109,6 +109,11 @@ export interface SlaContractCreate {
   timeout_seconds?: number;
 }
 
+export interface SubmitWork {
+  source_code: string;
+  test_suite: string;
+}
+
 export interface DoubleEntryLedgerEntry {
   entry_id: string;
   debit_account: string;
@@ -117,6 +122,7 @@ export interface DoubleEntryLedgerEntry {
   reference_id: string;
   currency: string;
   created_at: string;
+  amount_usd?: string;
   description?: string | null;
 }
 
@@ -124,6 +130,7 @@ export interface LedgerResponse {
   entries: DoubleEntryLedgerEntry[];
   /** account name -> balance in micros */
   balances: Record<string, number>;
+  balanced?: boolean;
 }
 
 export interface HealthResponse {

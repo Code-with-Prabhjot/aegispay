@@ -1,19 +1,23 @@
-// Single module for all backend calls. Adjust here if the real API differs.
+// Single module for all backend calls (verified against the real FastAPI backend).
 //
-// Assumed contract (base = NEXT_PUBLIC_API_BASE, default http://localhost:8000/api/v1):
-//   GET  /health                       -> { status: string }
-//   POST /contracts                    body SlaContractCreate -> SlaContractResponse
-//   GET  /contracts                    -> SlaContractResponse[]   (a {contracts: [...]} wrapper is also tolerated)
-//   GET  /contracts/{id}               -> SlaContractResponse & { history: FsmTransition[] }
-//   POST /contracts/{id}/submit        -> SlaContractResponse
-//   POST /demo/scenarios/{name}        -> SlaContractResponse  (name: CLEAN_PASS | PARTIAL_DEFECT | MALICIOUS_INJECTION)
-//   GET  /ledger                       -> { entries: DoubleEntryLedgerEntry[], balances: {account: micros} }
+// Contract (base = NEXT_PUBLIC_API_BASE, default http://localhost:8000/api/v1):
+//   GET  /health                       -> { status, paypal_mode, mock }
+//   POST /contracts                    body SlaContractCreate -> contract detail (201)
+//   GET  /contracts                    -> { contracts: SlaContractResponse[], count }
+//   GET  /contracts/{id}               -> SlaContractResponse + { transitions: [{from_state,to_state,reason,created_at}],
+//                                         arbitration_report, authorized_at }   (normalised here to `history`)
+//   POST /contracts/{id}/submit        body { source_code, test_suite } -> contract detail
+//   POST /demo/scenarios/{name}        -> contract detail + { ledger_entries, balances }
+//                                         (name: clean_pass | partial_defect | malicious_injection, case-insensitive)
+//   GET  /ledger                       -> { entries, balances: {account: micros}, balanced }
 import type {
   HealthResponse,
+  FsmTransition,
   LedgerResponse,
   ScenarioName,
   SlaContractCreate,
   SlaContractResponse,
+  SubmitWork,
 } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1").replace(/\/$/, "");
@@ -46,23 +50,44 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getHealth = () => request<HealthResponse>("/health");
 
-export async function listContracts(): Promise<SlaContractResponse[]> {
-  const data = await request<SlaContractResponse[] | { contracts: SlaContractResponse[] }>("/contracts");
-  return Array.isArray(data) ? data : data.contracts ?? [];
+interface RawTransition {
+  from_state: FsmTransition["from_state"];
+  to_state: FsmTransition["to_state"];
+  created_at: string;
 }
 
-export const getContract = (id: string) => request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}`);
+/** Backend sends `transitions[].created_at`; the UI consumes `history[].timestamp`. */
+function normalizeContract(raw: SlaContractResponse & { transitions?: RawTransition[] }): SlaContractResponse {
+  const { transitions, ...rest } = raw;
+  if (!transitions) return rest;
+  return {
+    ...rest,
+    history: transitions.map((t) => ({ from_state: t.from_state, to_state: t.to_state, timestamp: t.created_at })),
+  };
+}
 
-export const createContract = (body: SlaContractCreate) =>
-  request<SlaContractResponse>("/contracts", { method: "POST", body: JSON.stringify(body) });
+export async function listContracts(): Promise<SlaContractResponse[]> {
+  const data = await request<SlaContractResponse[] | { contracts: SlaContractResponse[] }>("/contracts");
+  return (Array.isArray(data) ? data : data.contracts ?? []).map(normalizeContract);
+}
 
-export const submitContract = (id: string, body: Record<string, unknown> = {}) =>
-  request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}/submit`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+export const getContract = async (id: string) =>
+  normalizeContract(await request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}`));
 
-export const runScenario = (name: ScenarioName) =>
-  request<SlaContractResponse>(`/demo/scenarios/${name}`, { method: "POST" });
+export const createContract = async (body: SlaContractCreate) =>
+  normalizeContract(await request<SlaContractResponse>("/contracts", { method: "POST", body: JSON.stringify(body) }));
+
+export const submitContract = async (id: string, body: SubmitWork) =>
+  normalizeContract(
+    await request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}/submit`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
+
+export const runScenario = async (name: ScenarioName) =>
+  normalizeContract(
+    await request<SlaContractResponse>(`/demo/scenarios/${encodeURIComponent(name.toLowerCase())}`, { method: "POST" }),
+  );
 
 export const getLedger = () => request<LedgerResponse>("/ledger");
