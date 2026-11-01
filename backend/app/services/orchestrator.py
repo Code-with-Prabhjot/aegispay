@@ -300,7 +300,7 @@ class EscrowOrchestrator:
         return {
             "id": event_id or f"WH-{uuid.uuid4().hex[:16].upper()}",
             "event_type": f"PAYMENT.PAYOUTS-ITEM.{suffix}",
-            "resource": {"payout_batch_id": batch_id, "transaction_status": suffix},
+            "resource": {"payout_batch_id": batch_id, "transaction_status": {"SUCCEEDED": "SUCCESS"}.get(suffix, suffix)},
         }
 
     # --------------------------------------------------------------------- demo

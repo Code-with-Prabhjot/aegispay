@@ -144,11 +144,6 @@ async def test_create_order_without_vault_matches_spec(rec_engine):
     assert "payment_source" not in rec.body()
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "REAL DRIFT: paypal_escrow.capture_authorization sends `is_final_capture`; PayPal's Payments v2 "
-    "capture_request field is `final_capture` (developer.paypal.com/api/payments/v2/schema.json). "
-    "PayPal ignores the unknown field, so every capture silently uses the default final_capture=false "
-    "and the authorization stays open. Fix in paypal_escrow.py (and drop this xfail)."))
 async def test_capture_request_matches_spec(rec_engine):
     rec, eng = rec_engine
     await eng.capture_authorization("agr_1", "AUTH1", 4_500_000)
@@ -162,7 +157,6 @@ async def test_capture_request_known_good_parts(rec_engine):
     rec, eng = rec_engine
     await eng.capture_authorization("agr_1", "AUTH1", 4_500_000)
     body = rec.body()
-    body.pop("is_final_capture")  # the drifted field, tracked by the xfail above
     check("CaptureRequest", body)
     assert body["amount"] == {"currency_code": "USD", "value": "4.50"}
 
@@ -214,10 +208,6 @@ async def test_mock_capture_decline_matches_error_shape():
     check("Error", out["error_details"])
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Mock drift: MockPayPalEscrowEngine payout_response includes an `items` array; PayPal's "
-    "POST /v1/payments/payouts 201 response only has batch_header + links "
-    "(payouts-batch/v1 schema `payout`). Items are only available via GET /v1/payments/payouts/{id}."))
 async def test_mock_payout_response_matches_spec():
     out = await MockPayPalEscrowEngine().dispatch_worker_payout("agr_1", "w@example.com", 3_000_000, 0.9)
     check("CreatePayoutResponse", out["payout_response"])
@@ -237,10 +227,6 @@ def test_webhook_event_envelope_matches_spec(outcome):
     assert ev["event_type"] in _resolve(SPEC["components"]["schemas"]["PayoutItemWebhookEvent"]["properties"]["event_type"])["enum"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Unverified-enum drift: EscrowOrchestrator.build_payout_event sets resource.transaction_status to "
-    "SUCCEEDED/FAILED/UNCLAIMED; PayPal payout-item transaction_status values are SUCCESS/FAILED/UNCLAIMED/... "
-    "(see x-aegispay-unverified in the spec). Only affects demo-generated events; the handler keys off event_type."))
 def test_webhook_event_transaction_status_matches_spec():
     ev = EscrowOrchestrator.build_payout_event("B1", "succeeded")
     validate("PayoutItemWebhookEvent", ev)
@@ -253,3 +239,10 @@ def test_aegispay_api_spec_is_valid_and_fresh():
     assert export_openapi.render() == (DIR / "aegispay_api.openapi.yaml").read_text(), (
         "aegispay_api.openapi.yaml is stale: run `python -m backend.apimatic_validation.export_openapi`")
     assert "/api/v1/webhooks/paypal" in spec["paths"]
+
+
+async def test_capture_note_to_payer_truncated_to_255(rec_engine):
+    rec, eng = rec_engine
+    await eng.capture_authorization("agr_" + "x" * 400, "AUTH1", 1_000_000)
+    assert len(rec.body()["note_to_payer"]) == 255
+    check("CaptureRequest", rec.body())

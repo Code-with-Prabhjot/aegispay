@@ -244,8 +244,8 @@ class PayPalEscrowEngine:
                 "currency_code": "USD",
                 "value": micros_to_usd_str(capture_micros),
             },
-            "is_final_capture": is_final_capture,
-            "note_to_payer": f"AegisPay Verified SLA Settlement (Agreement {agreement_id})",
+            "final_capture": is_final_capture,
+            "note_to_payer": f"AegisPay Verified SLA Settlement (Agreement {agreement_id})"[:255],
         }
         res = await self.http.post(
             f"{self.base_url}/v2/payments/authorizations/{authorization_id}/capture",

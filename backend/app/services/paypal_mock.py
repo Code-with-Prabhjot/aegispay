@@ -142,17 +142,6 @@ class MockPayPalEscrowEngine:
                     "batch_status": "PENDING",
                     "sender_batch_header": {"sender_batch_id": batch_key},
                 },
-                "items": [
-                    {
-                        "payout_item_id": _fake_id("MOCKITEM", item_key, 13),
-                        "receiver": worker_paypal_email,
-                        "amount": {
-                            "value": micros_to_usd_str(net_payout_micros),
-                            "currency": "USD",
-                        },
-                        "sender_item_id": item_key,
-                    }
-                ],
                 "links": [],
             },
         }
