@@ -14,10 +14,10 @@ export default function Background() {
     type P = { x: number; y: number; vx: number; vy: number; r: number; h: number };
     let ps: P[] = [];
     const size = () => {
-      const d = Math.min(devicePixelRatio || 1, 2);
+      const d = Math.min(devicePixelRatio || 1, 1.5);
       W = innerWidth; H = innerHeight;
       c.width = W * d; c.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0);
-      const n = Math.min(110, Math.floor((W * H) / 14000));
+      const n = Math.min(60, Math.floor((W * H) / 24000));
       ps = Array.from({ length: n }, () => ({
         x: Math.random() * W, y: Math.random() * H,
         vx: (Math.random() - 0.5) * 0.35, vy: (Math.random() - 0.5) * 0.35,
@@ -37,31 +37,38 @@ export default function Background() {
       for (let i = 0; i < ps.length; i++) {
         for (let j = i + 1; j < ps.length; j++) {
           const a = ps[i], b = ps[j], dx = a.x - b.x, dy = a.y - b.y, d = dx * dx + dy * dy;
-          if (d < 16000) {
-            ctx.strokeStyle = `hsla(${a.h},100%,65%,${(1 - d / 16000) * 0.28})`;
+          if (d < 14000) {
+            ctx.strokeStyle = `hsla(${a.h},100%,65%,${(1 - d / 14000) * 0.28})`;
             ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
           }
         }
       }
       for (const p of ps) {
-        ctx.fillStyle = `hsla(${p.h},100%,70%,.9)`; ctx.shadowColor = `hsl(${p.h},100%,60%)`; ctx.shadowBlur = 10;
+        ctx.fillStyle = `hsla(${p.h},100%,70%,.9)`;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill();
       }
-      ctx.shadowBlur = 0;
-      if (!still) raf = requestAnimationFrame(draw);
+      if (!still && !document.hidden) raf = requestAnimationFrame(draw);
     };
     const move = (e: MouseEvent) => {
       m.x = e.clientX; m.y = e.clientY;
       glow.current?.style.setProperty("transform", `translate(${e.clientX - 260}px,${e.clientY - 260}px)`);
     };
+    let tick = false;
     const scroll = () => {
+      if (tick) return; tick = true;
+      requestAnimationFrame(() => { tick = false; upd(); });
+    };
+    const upd = () => {
       const h = document.documentElement;
       prog.current?.style.setProperty("transform", `scaleX(${h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight)})`);
     };
-    size(); draw(); scroll();
+    const vis = () => { if (!document.hidden && !still) { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); } };
+    document.addEventListener("visibilitychange", vis);
+    size(); draw(); upd();
     addEventListener("resize", size); addEventListener("mousemove", move); addEventListener("scroll", scroll, { passive: true });
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", vis);
       removeEventListener("resize", size); removeEventListener("mousemove", move); removeEventListener("scroll", scroll);
     };
   }, []);
