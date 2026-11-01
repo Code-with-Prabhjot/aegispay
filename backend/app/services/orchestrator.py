@@ -21,11 +21,25 @@ from backend.app.services import fsm
 from backend.app.services.arbitration_engine import ArbitrationArbiter, get_execution_runner
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
 from backend.app.services.llm_judge import get_semantic_judge
+from backend.app.services.paypal_escrow import usd_amount_to_micros
 from backend.app.services.scenario_presets import PresetScenario, get_scenario
 
 ESCROW = LedgerAccount.PAYPAL_ESCROW_HOLD.value
 BUYER = LedgerAccount.BUYER_VAULT.value
 WORKER = LedgerAccount.WORKER_PAYABLE.value
+
+AUTHORIZATION_CREATED = "PAYMENT.AUTHORIZATION.CREATED"
+AUTHORIZATION_VOIDED = "PAYMENT.AUTHORIZATION.VOIDED"
+CAPTURE_COMPLETED = "PAYMENT.CAPTURE.COMPLETED"
+
+# States at or past a successful capture; a capture webhook here confirms what already happened.
+POST_CAPTURE_STATES = frozenset({
+    FsmState.PAYPAL_CAPTURED,
+    FsmState.PARTIAL_CAPTURED,
+    FsmState.PAYOUT_DISPATCHED,
+    FsmState.PAYOUT_FAILED_REVERSED,
+    FsmState.SETTLED_COMPLETE,
+})
 
 
 class NotFoundError(Exception):
@@ -113,13 +127,16 @@ class EscrowOrchestrator:
             c.authorized_at = self.clock()
             self._move(c, FsmState.PAYPAL_AUTH_LOCKED, "PayPal authorization hold locked")
             with self.repo.db.transaction():
-                # Demo funding: the buyer vault is topped up so the hold can be placed.
-                self.ledger.deposit(BUYER, c.budget_micros, agreement_id,
-                                    "Buyer vault funding for escrow hold")
-                self.ledger.record_transfer(ESCROW, BUYER, c.budget_micros, agreement_id,
-                                            f"PayPal authorization hold locked ({agreement_id})")
-                self.repo.save_contract(c)
+                self._record_hold_locked(c)
             return c
+
+    def _record_hold_locked(self, c: fsm.ContractRecord) -> None:
+        # Demo funding: the buyer vault is topped up so the hold can be placed.
+        self.ledger.deposit(BUYER, c.budget_micros, c.agreement_id,
+                            "Buyer vault funding for escrow hold")
+        self.ledger.record_transfer(ESCROW, BUYER, c.budget_micros, c.agreement_id,
+                                    f"PayPal authorization hold locked ({c.agreement_id})")
+        self.repo.save_contract(c)
 
     # ------------------------------------------------------------------- expiry
     async def check_expiry(self, agreement_id: str) -> fsm.ContractRecord:
@@ -256,7 +273,7 @@ class EscrowOrchestrator:
 
     # ----------------------------------------------------------------- webhooks
     async def handle_webhook(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        """Idempotent payout webhook handler. Caller has already verified the signature."""
+        """Idempotent webhook handler. Caller has already verified the signature."""
         event_id = event.get("id")
         event_type = str(event.get("event_type", ""))
         resource = event.get("resource") or {}
@@ -265,11 +282,101 @@ class EscrowOrchestrator:
         )
         async with self._lock:
             with self.repo.db.transaction():
-                if not self.repo.record_webhook_event(event_id, event_type, batch_id, event, self.clock()):
+                if not self.repo.record_webhook_event(event_id, event_type, batch_id or resource.get("id"),
+                                                      event, self.clock()):
                     return {"status": "duplicate", "event_id": event_id}
-                outcome, agreement_id = self._apply_payout_event(event_type, batch_id)
+                outcome, agreement_id = self._apply_event(event_type, resource, batch_id)
                 self.repo.set_webhook_outcome(event_id, outcome)
+            if event_type == CAPTURE_COMPLETED and outcome in ("processed", "already_applied"):
+                await self._resume_payout(agreement_id, event_id)
             return {"status": outcome, "event_id": event_id, "agreement_id": agreement_id}
+
+    def _apply_event(self, event_type: str, resource: Dict[str, Any], batch_id: Optional[str]):
+        if event_type == AUTHORIZATION_CREATED:
+            return self._apply_authorization_created(event_type, resource)
+        if event_type == CAPTURE_COMPLETED:
+            return self._apply_capture_completed(event_type, resource)
+        if event_type == AUTHORIZATION_VOIDED:
+            return self._apply_authorization_voided(event_type, resource)
+        return self._apply_payout_event(event_type, batch_id)
+
+    def _find_contract(self, authorization_id: Optional[str],
+                       custom_id: Optional[str]) -> Optional[fsm.ContractRecord]:
+        """Locate by authorization ID, else by custom_id (the agreement_id set on the order)."""
+        c = self.repo.get_contract_by_authorization(authorization_id) if authorization_id else None
+        if c is None and custom_id:
+            c = self.repo.get_contract(custom_id)
+            if c and authorization_id and c.paypal_authorization_id not in (None, authorization_id):
+                return None
+        return c
+
+    def _apply_authorization_created(self, event_type: str, resource: Dict[str, Any]):
+        """Locks the hold once the buyer approves; create_contract has already done so if no approval was needed."""
+        auth_id = resource.get("id")
+        c = self._find_contract(auth_id, resource.get("custom_id"))
+        if c is None:
+            return "ignored_unknown_contract", None
+        if c.fsm_state != FsmState.AGREEMENT_DRAFTED:
+            if c.paypal_authorization_id == auth_id:
+                return "already_applied", c.agreement_id
+            return "ignored_illegal_state", c.agreement_id
+        if usd_amount_to_micros(resource.get("amount")) != (c.budget_micros // 10_000) * 10_000:
+            return "ignored_amount_mismatch", c.agreement_id
+        c.paypal_authorization_id = auth_id
+        c.paypal_order_id = ((resource.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id")
+        c.authorized_at = self.clock()
+        self._move(c, FsmState.PAYPAL_AUTH_LOCKED, f"Webhook {event_type}")
+        self._record_hold_locked(c)
+        return "processed", c.agreement_id
+
+    def _apply_capture_completed(self, event_type: str, resource: Dict[str, Any]):
+        """Confirms a capture; if the synchronous capture response was lost, settles from here."""
+        capture_id = resource.get("id")
+        related = (resource.get("supplementary_data") or {}).get("related_ids") or {}
+        c = self._find_contract(related.get("authorization_id"), resource.get("custom_id"))
+        if c is None:
+            return "ignored_unknown_contract", None
+        if c.fsm_state in POST_CAPTURE_STATES and c.paypal_capture_id == capture_id:
+            return "already_applied", c.agreement_id
+        target = {
+            FsmState.FULL_CAPTURE_PENDING: FsmState.PAYPAL_CAPTURED,
+            FsmState.PARTIAL_CAPTURE_PENDING: FsmState.PARTIAL_CAPTURED,
+        }.get(c.fsm_state)
+        if target is None:
+            return "ignored_illegal_state", c.agreement_id
+        split = ArbitrationReport(**c.report).settlement
+        if usd_amount_to_micros(resource.get("amount")) != split.capture_micros:
+            return "ignored_amount_mismatch", c.agreement_id
+        c.paypal_capture_id = capture_id
+        self._move(c, target, f"Webhook {event_type}")
+        self.ledger.record_settlement(c.agreement_id, split)
+        self.repo.save_contract(c)
+        return "processed", c.agreement_id
+
+    async def _resume_payout(self, agreement_id: str, event_id: str) -> None:
+        """Dispatch a captured contract's payout; on failure, let PayPal's redelivery try again."""
+        c = self.get(agreement_id)
+        if c.fsm_state not in (FsmState.PAYPAL_CAPTURED, FsmState.PARTIAL_CAPTURED):
+            return
+        try:
+            await self._dispatch_payout(c, attempt=1)
+        except UpstreamError:
+            self.repo.delete_webhook_event(event_id)  # otherwise the redelivery is dropped as a duplicate
+            raise
+
+    def _apply_authorization_voided(self, event_type: str, resource: Dict[str, Any]):
+        """Confirms a void; if the synchronous void response was lost, releases the hold from here."""
+        c = self._find_contract(resource.get("id"), resource.get("custom_id"))
+        if c is None:
+            return "ignored_unknown_contract", None
+        if c.fsm_state == FsmState.ESCROW_VOIDED_REFUNDED:
+            return "already_applied", c.agreement_id
+        if c.fsm_state != FsmState.VOID_PENDING:
+            return "ignored_illegal_state", c.agreement_id
+        self._move(c, FsmState.ESCROW_VOIDED_REFUNDED, f"Webhook {event_type}")
+        self.ledger.record_settlement(c.agreement_id, ArbitrationReport(**c.report).settlement)
+        self.repo.save_contract(c)
+        return "processed", c.agreement_id
 
     def _apply_payout_event(self, event_type: str, batch_id: Optional[str]):
         target = fsm.target_state_for_payout_event(event_type)
