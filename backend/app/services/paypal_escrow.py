@@ -44,6 +44,19 @@ def micros_to_usd_str(micros: int) -> str:
     return f"{dollars:.2f}"
 
 
+def usd_amount_to_micros(amount: Any) -> Optional[int]:
+    """
+    Parses a PayPal {"currency_code": "USD", "value": "10.50"} amount into integer micro-dollars.
+    Returns None for a missing, malformed or non-USD amount.
+    """
+    if not isinstance(amount, dict) or amount.get("currency_code") != "USD":
+        return None
+    try:
+        return int(Decimal(str(amount.get("value"))) * 1_000_000)
+    except (ArithmeticError, ValueError):
+        return None
+
+
 def compute_settlement_split_micros(
     agreed_budget_micros: int,
     composite_score: float,
@@ -386,7 +399,10 @@ class PayPalEscrowEngine:
     ) -> bool:
         """
         Verifies an incoming PayPal webhook event signature via PayPal's API.
+        Requests missing a signature header are rejected without calling PayPal.
         """
+        if not all((transmission_id, transmission_time, cert_url, auth_algo, transmission_sig)):
+            return False
         token = await self.get_access_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -410,6 +426,18 @@ class PayPalEscrowEngine:
             data = res.json()
             return data.get("verification_status") == "SUCCESS"
         return False
+
+    async def get_webhook_registration(self) -> Optional[Dict[str, Any]]:
+        """Fetches the configured webhook's registration, or None if PayPal doesn't know the ID."""
+        token = await self.get_access_token()
+        res = await self.http.get(
+            f"{self.base_url}/v1/notifications/webhooks/{self.webhook_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if res.status_code == 404:
+            return None
+        res.raise_for_status()
+        return res.json()
 
     async def close(self) -> None:
         """Closes the underlying HTTP client session if internally created."""
