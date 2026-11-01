@@ -368,6 +368,6 @@ components:
             payout_batch_id: {type: string}
             payout_item_id: {type: string}
             transaction_id: {type: string}
-            transaction_status: {type: string, enum: [SUCCESS, FAILED, UNCLAIMED, PENDING, ONHOLD, BLOCKED, RETURNED, REFUNDED, DENIED, CANCELED]}
+            transaction_status: {type: string, enum: [SUCCESS, FAILED, PENDING, UNCLAIMED, RETURNED, ONHOLD, BLOCKED, REFUNDED, REVERSED]}  # enum verified against payouts-batch/v1 payout item schema (no longer unverified)
             sender_batch_id: {type: string}
             payout_item: {type: object}
