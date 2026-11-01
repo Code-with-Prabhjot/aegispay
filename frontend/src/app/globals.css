@@ -3,10 +3,19 @@
 @tailwind utilities;
 
 body {
-  background: #0b1020;
+  background: #030a28;
   color: #e2e8f0;
 }
+
 .ag-theme-quartz-dark {
-  --ag-background-color: #0f172a;
-  --ag-header-background-color: #111c36;
+  --ag-background-color: rgba(8, 16, 45, 0.6);
+  --ag-header-background-color: rgba(14, 28, 75, 0.85);
+  --ag-odd-row-background-color: rgba(10, 20, 55, 0.35);
+  --ag-border-color: rgba(140, 180, 255, 0.16);
+  --ag-row-hover-color: rgba(0, 229, 255, 0.08);
+  --ag-selected-row-background-color: rgba(0, 229, 255, 0.14);
+  --ag-font-family: inherit;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(140, 180, 255, 0.15);
 }
