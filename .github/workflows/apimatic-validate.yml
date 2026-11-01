@@ -1,0 +1,36 @@
+name: apimatic-validate
+
+on:
+  push:
+    paths: ["backend/**", "tests/**", "requirements*.txt", ".github/workflows/apimatic-validate.yml"]
+  pull_request:
+
+jobs:
+  drift-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/test_apimatic_contract.py
+
+  apimatic:
+    runs-on: ubuntu-latest
+    env:
+      APIMATIC_API_KEY: ${{ secrets.APIMATIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate specs with APIMatic
+        run: |
+          if [ -z "$APIMATIC_API_KEY" ]; then
+            echo "APIMATIC_API_KEY secret not set - skipping APIMatic validation"
+            exit 0
+          fi
+          npx --yes @apimatic/cli@2.0.0 auth login --auth-key="$APIMATIC_API_KEY"
+          npx --yes @apimatic/cli@2.0.0 api validate --file backend/apimatic_validation/paypal_subset.openapi.yaml
+          npx --yes @apimatic/cli@2.0.0 api validate --file backend/apimatic_validation/aegispay_api.openapi.yaml

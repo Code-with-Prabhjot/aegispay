@@ -44,3 +44,6 @@ State is stored in SQLite (`DATABASE_URL`, default `sqlite:///./aegispay.db`; th
 Try the demo without PayPal credentials: `curl -X POST localhost:8000/api/v1/demo/scenarios/clean_pass` (also `partial_defect`, `malicious_injection`), then `GET /api/v1/ledger`.
 Routes (`/api/v1`): `GET /health`, `POST|GET /contracts`, `GET /contracts/{id}`, `POST /contracts/{id}/submit`, `POST /contracts/{id}/check-expiry`, `POST /contracts/{id}/payout/retry`, `POST /demo/scenarios/{name}`, `GET /ledger`, `POST /webhooks/paypal`.
 
+
+## APIMatic validation
+`backend/apimatic_validation/` holds an OpenAPI 3.0 subset of the PayPal endpoints we call, the exported AegisPay API spec, and contract-drift tests (`tests/test_apimatic_contract.py`, install `requirements-dev.txt`) that fail if `paypal_escrow.py` or the mock engine drift from the spec. Running the APIMatic CLI (`apimatic api validate`, SDK generation) needs an APIMatic API key; see `backend/apimatic_validation/README.md`.
