@@ -24,7 +24,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 | 13 | PayPal | Postman collection export for the API | ✅ | Claude (Sonnet agent) | feat/backend-api-and-sandbox | `postman/AegisPay.postman_collection.json` + README |
 | 17 | Integration | Integration: arbiter factories wired, API contract reconciled, payout retry idempotency fix | ✅ | Claude (Sonnet agent) | feat/backend-api-and-sandbox | Orchestrator uses get_execution_runner/get_semantic_judge; payout keys vary per attempt; 123 tests |
 | 14 | Frontend | `@paypal/react-paypal-js` Smart Payment Buttons | 🔒 | | | Needs sandbox client ID |
-| 15 | Sponsor | APIMatic schema validation (`backend/apimatic_validation/`) | ⬜ | | | |
+| 15 | Sponsor | APIMatic schema validation (`backend/apimatic_validation/`) | 🔒 | Claude (Sonnet agent) | wip/apimatic | Specs + drift tests + CI workflow done; APIMatic CLI run needs an API key (CLI demands auth even for `api validate`). Drift found: capture sends `is_final_capture`, PayPal field is `final_capture` (xfail test) |
 | 16 | Release | Vercel deploy, repo public, Devpost write-up, demo video | 🔒 | | | Needs account access |
 
 ## Changelog
@@ -33,6 +33,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 - 2026-11-01 — Frontend (task 11) built on `wip/frontend`: Mission Control, AG Grid ledger, FSM timeline, double-entry panel, offline demo-data mode.
 - 2026-11-01 — Tasks 5-8 (branch `wip/backend-api`): FSM engine (`services/fsm.py`, 72h TTL, capture-declined, payout failed/retry), SQLite repository + Postgres-compatible `backend/db/schema.sql` (`app/db.py`; ledger persists/reloads), offline `MockPayPalEscrowEngine` + `get_paypal_engine()` (`PAYPAL_MODE=mock`), orchestrator and FastAPI app under `/api/v1`. Run: `cp .env.example .env && uvicorn backend.app.main:app --reload`, then `POST /api/v1/demo/scenarios/clean_pass`. 91 tests pass.
 - 2026-11-01 — Integration: arbiter factories wired into the orchestrator, frontend api layer reconciled with the real API (`transitions` -> `history`, lowercase scenario names, submit body typed), real-engine payout retry now uses per-attempt sender_batch_id/item_id, Postman collection added (task 13). Mock-mode smoke of all 3 scenarios passes; frontend build + lint pass. 123 tests pass.
+- 2026-11-01 — Task 15 (branch `wip/apimatic`): PayPal subset + AegisPay OpenAPI specs, `export_openapi.py`, `tests/test_apimatic_contract.py` (3 strict xfails = real drift, see test reasons), `requirements-dev.txt`, APIMatic CI workflow. Real drift: `is_final_capture` should be `final_capture`.
 
 ## Known gaps
 - `DAILY_SPEND_LIMIT_MICROS` is not enforced anywhere.

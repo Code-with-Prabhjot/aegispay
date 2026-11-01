@@ -1,0 +1,373 @@
+# AegisPay - PayPal REST API subset (ONLY the endpoints/fields backend/app/services/paypal_escrow.py uses).
+#
+# Sources (public PayPal REST API reference / OpenAPI schemas, fetched 2026-11-01):
+#   Orders v2     https://developer.paypal.com/docs/api/orders/v2/        (schema: /api/orders/v2/schema.json)
+#   Payments v2   https://developer.paypal.com/docs/api/payments/v2/      (schema: /api/payments/v2/schema.json)
+#   Payouts v1    https://developer.paypal.com/docs/api/payments.payouts-batch/v1/ (schema: /api/payments.payouts-batch/v1/schema.json)
+#   Webhooks v1   https://developer.paypal.com/docs/api/webhooks/v1/     (schema: /api/webhooks/v1/schema.json)
+#   Vault attrs   https://developer.paypal.com/docs/checkout/save-payment-methods/during-purchase/js-sdk/paypal/
+#   Upstream repo: paypal/paypal-rest-api-specifications (openapi/*.json)
+#
+# Fields confirmed against those sources are plain. Anything we could not confirm is marked
+# `x-aegispay-unverified: true` (enum values, response shapes, webhook resource shape).
+# This is a deliberately SMALL subset (additionalProperties is allowed everywhere because PayPal
+# adds fields freely) - the contract tests check that what WE send is valid and what we READ exists.
+openapi: 3.0.3
+info:
+  title: PayPal REST API - AegisPay subset
+  version: 0.1.0
+  description: Subset of PayPal Orders v2, Payments v2, Payouts v1 and Webhooks v1 used by AegisPay.
+servers:
+  - url: https://api-m.sandbox.paypal.com
+    description: Sandbox
+  - url: https://api-m.paypal.com
+    description: Live
+security:
+  - oauth2: []
+paths:
+  /v1/oauth2/token:
+    post:
+      operationId: oauth2Token
+      summary: Get access token (client_credentials, HTTP Basic client_id:secret)
+      security:
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [client_credentials]
+      responses:
+        "200":
+          description: Token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token]
+                properties:
+                  access_token: {type: string}
+                  token_type: {type: string}
+                  expires_in: {type: integer}
+  /v2/checkout/orders:
+    post:
+      operationId: ordersCreate
+      summary: Create order (intent AUTHORIZE)
+      parameters:
+        - $ref: "#/components/parameters/PayPalRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/OrderRequest"}
+      responses:
+        "200":
+          description: Idempotent replay
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "422":
+          description: Unprocessable
+  /v2/payments/authorizations/{authorization_id}/capture:
+    post:
+      operationId: authorizationsCapture
+      summary: Capture authorized payment
+      parameters:
+        - {name: authorization_id, in: path, required: true, schema: {type: string}}
+        - $ref: "#/components/parameters/PayPalRequestId"
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CaptureRequest"}
+      responses:
+        "200":
+          description: Idempotent replay
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Capture"}
+        "201":
+          description: Capture created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Capture"}
+        "400": {description: INVALID_REQUEST}
+        "409": {description: RESOURCE_CONFLICT / PREVIOUS_REQUEST_IN_PROGRESS}
+        "422":
+          description: MAX_CAPTURE_AMOUNT_EXCEEDED, AUTHORIZATION_EXPIRED, INSTRUMENT_DECLINED, ...
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /v2/payments/authorizations/{authorization_id}/void:
+    post:
+      operationId: authorizationsVoid
+      summary: Void authorized payment (no request body)
+      parameters:
+        - {name: authorization_id, in: path, required: true, schema: {type: string}}
+        - $ref: "#/components/parameters/PayPalRequestId"
+      responses:
+        "204": {description: "Voided (default response, Prefer=return=minimal)"}
+        "200":
+          description: Voided, with representation (Prefer=return=representation)
+          x-aegispay-unverified: true
+  /v1/payments/payouts:
+    post:
+      operationId: payoutsCreate
+      summary: Create batch payout
+      parameters:
+        - $ref: "#/components/parameters/PayPalRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CreatePayoutRequest"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CreatePayoutResponse"}
+  /v1/notifications/verify-webhook-signature:
+    post:
+      operationId: verifyWebhookSignature
+      summary: Verify webhook signature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VerifyWebhookSignatureRequest"}
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VerifyWebhookSignatureResponse"}
+components:
+  securitySchemes:
+    basicAuth: {type: http, scheme: basic}
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://api-m.sandbox.paypal.com/v1/oauth2/token
+          scopes: {}
+  parameters:
+    PayPalRequestId:
+      name: PayPal-Request-Id
+      in: header
+      required: false
+      schema: {type: string}
+  schemas:
+    Money:  # Orders / Payments v2 "money"
+      type: object
+      required: [currency_code, value]
+      properties:
+        currency_code: {type: string, minLength: 3, maxLength: 3}
+        value: {type: string, pattern: '^((-?[0-9]+)|(-?([0-9]+)?[.][0-9]+))$'}
+    PayoutCurrency:  # Payouts v1 "currency" - NOTE different field names than Money
+      type: object
+      required: [currency, value]
+      properties:
+        currency: {type: string, minLength: 3, maxLength: 3}
+        value: {type: string}
+    OrderRequest:
+      type: object
+      required: [intent, purchase_units]
+      properties:
+        intent: {type: string, enum: [CAPTURE, AUTHORIZE]}
+        purchase_units:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [amount]
+            properties:
+              reference_id: {type: string, maxLength: 256}
+              custom_id: {type: string, maxLength: 255}
+              description: {type: string, maxLength: 127}
+              amount: {$ref: "#/components/schemas/Money"}
+        application_context:
+          # DEPRECATED upstream in favour of payment_source.paypal.experience_context
+          # (PayPal docs for vaulting only reference experience_context). Still accepted by the API.
+          x-aegispay-unverified: true
+          type: object
+          properties:
+            brand_name: {type: string, maxLength: 127}
+            shipping_preference: {type: string, enum: [GET_FROM_FILE, NO_SHIPPING, SET_PROVIDED_ADDRESS]}
+            user_action: {type: string, enum: [CONTINUE, PAY_NOW]}
+        payment_source:
+          type: object
+          properties:
+            paypal:
+              type: object
+              properties:
+                attributes:
+                  type: object
+                  properties:
+                    vault:
+                      type: object
+                      properties:
+                        store_in_vault:
+                          type: string
+                          enum: [ON_SUCCESS]  # only value documented in the vaulting guide
+                          x-aegispay-unverified: true  # full enum list not confirmed
+                        usage_type:
+                          type: string
+                          enum: [MERCHANT, PLATFORM]
+                          x-aegispay-unverified: true  # only MERCHANT confirmed in docs
+                        customer_type: {type: string, enum: [CONSUMER, BUSINESS]}
+                        permit_multiple_payment_tokens: {type: boolean}
+    Order:
+      type: object
+      required: [id, status]
+      properties:
+        id: {type: string}
+        intent: {type: string, enum: [CAPTURE, AUTHORIZE]}
+        status:
+          type: string
+          enum: [CREATED, SAVED, APPROVED, VOIDED, COMPLETED, PAYER_ACTION_REQUIRED]
+          x-aegispay-unverified: true  # CREATED/APPROVED/COMPLETED/PAYER_ACTION_REQUIRED seen in docs examples
+        purchase_units:
+          type: array
+          items:
+            type: object
+            properties:
+              reference_id: {type: string}
+              custom_id: {type: string}
+              description: {type: string}
+              amount: {$ref: "#/components/schemas/Money"}
+              payments:
+                type: object
+                properties:
+                  authorizations:
+                    type: array
+                    items: {$ref: "#/components/schemas/Authorization"}
+        links: {type: array, items: {type: object}}
+    Authorization:
+      type: object
+      required: [id, status]
+      properties:
+        id: {type: string}
+        status: {type: string, enum: [CREATED, CAPTURED, DENIED, PARTIALLY_CAPTURED, VOIDED, PENDING]}
+        amount: {$ref: "#/components/schemas/Money"}
+    CaptureRequest:
+      type: object
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        invoice_id: {type: string, maxLength: 127}
+        # The PayPal field is `final_capture` (boolean, default false) - NOT `is_final_capture`.
+        final_capture: {type: boolean, default: false}
+        note_to_payer: {type: string, maxLength: 255}
+        soft_descriptor: {type: string, maxLength: 22}
+    Capture:
+      type: object
+      required: [id, status]
+      properties:
+        id: {type: string}
+        status: {type: string, enum: [COMPLETED, DECLINED, PARTIALLY_REFUNDED, PENDING, REFUNDED, FAILED]}
+        amount: {$ref: "#/components/schemas/Money"}
+        final_capture: {type: boolean}
+    Error:
+      type: object
+      properties:
+        name: {type: string}
+        message: {type: string}
+        debug_id: {type: string}
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              issue: {type: string}
+              description: {type: string}
+    CreatePayoutRequest:
+      type: object
+      required: [sender_batch_header, items]
+      properties:
+        sender_batch_header:
+          type: object
+          properties:
+            sender_batch_id: {type: string, maxLength: 256}
+            recipient_type: {type: string, maxLength: 13}
+            email_subject: {type: string, maxLength: 255}
+            email_message: {type: string, maxLength: 1000}
+            note: {type: string, maxLength: 1000}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 15000
+          items:
+            type: object
+            required: [amount, receiver]
+            properties:
+              recipient_type: {type: string, enum: [EMAIL, PHONE, PAYPAL_ID, USER_HANDLE]}
+              amount: {$ref: "#/components/schemas/PayoutCurrency"}
+              receiver: {type: string, maxLength: 127}
+              note: {type: string}
+              sender_item_id: {type: string, maxLength: 63}
+    CreatePayoutResponse:
+      type: object
+      required: [batch_header]
+      properties:
+        batch_header:
+          type: object
+          required: [payout_batch_id, batch_status, sender_batch_header]
+          properties:
+            payout_batch_id: {type: string}
+            batch_status: {type: string, enum: [DENIED, PENDING, PROCESSING, SUCCESS, CANCELED]}
+            sender_batch_header: {type: object}
+        links: {type: array, items: {type: object}}
+    VerifyWebhookSignatureRequest:
+      type: object
+      required: [auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id, webhook_event]
+      properties:
+        auth_algo: {type: string}
+        cert_url: {type: string}
+        transmission_id: {type: string}
+        transmission_sig: {type: string}
+        transmission_time: {type: string}
+        webhook_id: {type: string}
+        webhook_event: {type: object}
+    VerifyWebhookSignatureResponse:
+      type: object
+      required: [verification_status]
+      properties:
+        verification_status: {type: string, enum: [SUCCESS, FAILURE]}
+    # ---- Webhook event payloads (delivered to /api/v1/webhooks/paypal) ----
+    # Common envelope per PayPal webhook docs; `resource` shape for payout items is
+    # x-aegispay-unverified (we only read resource.payout_batch_id / resource.payout_item.payout_batch_id).
+    PayoutItemWebhookEvent:
+      type: object
+      required: [id, event_type, resource]
+      properties:
+        id: {type: string}
+        event_version: {type: string}
+        create_time: {type: string}
+        resource_type: {type: string}
+        event_type:
+          type: string
+          enum:
+            - PAYMENT.PAYOUTS-ITEM.SUCCEEDED
+            - PAYMENT.PAYOUTS-ITEM.FAILED
+            - PAYMENT.PAYOUTS-ITEM.UNCLAIMED
+        summary: {type: string}
+        resource:
+          x-aegispay-unverified: true
+          type: object
+          required: [payout_batch_id]
+          properties:
+            payout_batch_id: {type: string}
+            payout_item_id: {type: string}
+            transaction_id: {type: string}
+            transaction_status: {type: string, enum: [SUCCESS, FAILED, UNCLAIMED, PENDING, ONHOLD, BLOCKED, RETURNED, REFUNDED, DENIED, CANCELED]}
+            sender_batch_id: {type: string}
+            payout_item: {type: object}
