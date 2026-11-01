@@ -26,7 +26,7 @@ def test_docker_command_has_exact_hardening_flags():
         seen["kw"] = kw
         # workspace must exist with both files while the container runs
         mount = cmd[cmd.index("-v") + 1]
-        host = mount.split(":")[0]
+        host = mount.rsplit(":/workspace", 1)[0]
         import os
 
         seen["files"] = sorted(os.listdir(host))
