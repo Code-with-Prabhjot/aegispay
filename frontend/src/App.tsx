@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Landing from "./Landing";
 import Dashboard from "./Dashboard";
+import Background from "./Background";
 
 const route = () => (window.location.hash.startsWith("#/dashboard") ? "dashboard" : "landing");
 
@@ -14,5 +15,10 @@ export default function App() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  return page === "dashboard" ? <Dashboard /> : <Landing />;
+  return (
+    <>
+      <Background />
+      <div key={page} className="page">{page === "dashboard" ? <Dashboard /> : <Landing />}</div>
+    </>
+  );
 }
