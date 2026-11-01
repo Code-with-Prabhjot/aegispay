@@ -15,7 +15,8 @@ P = "/api/v1"
 
 @pytest.fixture()
 def env(tmp_path):
-    cfg = Settings(_env_file=None, PAYPAL_MODE="mock", DATABASE_URL=f"sqlite:///{tmp_path}/api.db")
+    cfg = Settings(_env_file=None, PAYPAL_MODE="mock",
+                   SANDBOX_MODE="subprocess", DATABASE_URL=f"sqlite:///{tmp_path}/api.db")
     engine = MockPayPalEscrowEngine()
     app = create_app(cfg, engine=engine)
     with TestClient(app) as client:

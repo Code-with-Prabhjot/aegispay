@@ -123,6 +123,7 @@ class MockPayPalEscrowEngine:
         worker_paypal_email: str,
         net_payout_micros: int,
         verification_score: float,
+        attempt: int = 1,
     ) -> Dict[str, Any]:
         if net_payout_micros < 10_000:
             return {
@@ -130,8 +131,8 @@ class MockPayPalEscrowEngine:
                 "ok": False,
                 "fsm_transition": "SETTLED_COMPLETE",
             }
-        batch_key = derive_idempotency_key(agreement_id, "payout_batch")
-        item_key = derive_idempotency_key(agreement_id, "payout_item")
+        batch_key = derive_idempotency_key(agreement_id, "payout_batch", step=attempt)
+        item_key = derive_idempotency_key(agreement_id, "payout_item", step=attempt)
         return {
             "ok": True,
             "fsm_transition": "PAYOUT_DISPATCHED",

@@ -318,10 +318,14 @@ class PayPalEscrowEngine:
         worker_paypal_email: str,
         net_payout_micros: int,
         verification_score: float,
+        attempt: int = 1,
     ) -> Dict[str, Any]:
         """
         Disburses net verified earnings to the worker agent via PayPal Batch Payouts API.
         Uses deterministic sender_batch_id and sender_item_id to prevent double disbursement.
+        `attempt` (1-based) is folded into the idempotency keys so that a retry after
+        PAYOUT_FAILED_REVERSED uses a fresh sender_batch_id instead of replaying the failed one;
+        repeating the same attempt still yields identical keys.
         """
         if net_payout_micros < 10_000:
             return {
@@ -331,8 +335,8 @@ class PayPalEscrowEngine:
             }
 
         token = await self.get_access_token()
-        batch_id = derive_idempotency_key(agreement_id, "payout_batch")
-        item_id = derive_idempotency_key(agreement_id, "payout_item")
+        batch_id = derive_idempotency_key(agreement_id, "payout_batch", step=attempt)
+        item_id = derive_idempotency_key(agreement_id, "payout_item", step=attempt)
 
         headers = {
             "Authorization": f"Bearer {token}",

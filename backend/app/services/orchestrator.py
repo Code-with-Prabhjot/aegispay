@@ -18,8 +18,9 @@ from backend.app.schemas import (
     SlaContractCreate,
 )
 from backend.app.services import fsm
-from backend.app.services.arbitration_engine import ArbitrationArbiter
+from backend.app.services.arbitration_engine import ArbitrationArbiter, get_execution_runner
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
+from backend.app.services.llm_judge import get_semantic_judge
 from backend.app.services.scenario_presets import PresetScenario, get_scenario
 
 ESCROW = LedgerAccount.PAYPAL_ESCROW_HOLD.value
@@ -56,7 +57,9 @@ class EscrowOrchestrator:
         self.ledger = ledger
         self.engine = engine
         self.settings = settings
-        self.arbiter = arbiter or ArbitrationArbiter()
+        self.arbiter = arbiter or ArbitrationArbiter(
+            runner=get_execution_runner(settings), judge=get_semantic_judge(settings)
+        )
         self.clock = clock
         self._lock = asyncio.Lock()  # serialise state-changing flows (single-process demo)
 
@@ -219,6 +222,7 @@ class EscrowOrchestrator:
             res = await self.engine.dispatch_worker_payout(
                 c.agreement_id, c.worker_paypal_email, split.worker_net_payout_micros,
                 c.verification_score or 0.0,
+                attempt=attempt,
             )
         except Exception as exc:
             raise UpstreamError(f"PayPal payout failed: {exc}") from exc
