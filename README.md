@@ -18,3 +18,16 @@ The arbiter can run worker tests in a hardened Docker container (`--network none
 Build the image with `docker build -t aegispay-sandbox-runner:latest sandbox/`, then set `SANDBOX_MODE=docker` (or `auto`, the default, which falls back to the non-isolated subprocess runner with a warning if Docker or the image is missing). See `sandbox/README.md`.
 
 Set `LLM_JUDGE_ENABLED=true` and `ANTHROPIC_API_KEY` (and `pip install anthropic`) to score semantics with Claude (`LLM_JUDGE_MODEL`, default `claude-haiku-5-5`); any failure falls back to the heuristic rubric.
+
+## Running the frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # optional; NEXT_PUBLIC_API_BASE defaults to http://localhost:8000/api/v1
+npm run dev                  # http://localhost:3000
+```
+
+The dashboard polls the backend every 2s. If the API is unreachable it shows a "Backend offline" banner with a
+"Use demo data" button that switches to deterministic fixtures (`frontend/src/lib/fixtures.ts`). All API calls live in
+`frontend/src/lib/api.ts`. Production check: `npm run build && npm run lint`.
