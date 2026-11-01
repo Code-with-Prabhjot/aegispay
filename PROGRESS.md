@@ -17,8 +17,8 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 | 6 | Core | Persistence: `schema.sql` (Postgres-compatible) + repository layer, SQLite for dev/tests | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
 | 7 | API | FastAPI app: contracts, arbitrate, settle, ledger, `/api/v1/webhooks/paypal`, health | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
 | 8 | API | Offline mock PayPal mode (deterministic fake IDs) so demo runs without credentials | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
-| 9 | Arbiter | Docker `--network none` runner + `sandbox/Dockerfile`, falls back to subprocess when Docker unavailable | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | Not verified against a live Docker daemon |
-| 10 | Arbiter | LLM semantic judge (pluggable, falls back to heuristic rubric when no API key) | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | Needs an API key to use for real |
+| 9 | Arbiter | Docker `--network none` runner + `sandbox/Dockerfile`, falls back to subprocess when Docker unavailable | ✅ | Claude (Sonnet agent) | wip/arbiter-sandbox | Docker path unit-tested with mocks; not run against a live daemon |
+| 10 | Arbiter | LLM semantic judge (pluggable, falls back to heuristic rubric when no API key) | ✅ | Claude (Sonnet agent) | wip/arbiter-sandbox | needs API key for live use |
 | 11 | Frontend | Next.js 14 dashboard scaffold, AG Grid ledger, FSM timeline, 3-scenario demo buttons | 🚧 | Claude (agent) | feat/backend-api-and-sandbox | |
 | 12 | PayPal | Live sandbox wiring: create sandbox accounts, fill `.env`, register webhook, end-to-end run | 🔒 | | | Needs PayPal developer login |
 | 13 | PayPal | Postman collection export for the API | ⬜ | | | |
@@ -28,3 +28,4 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 
 ## Changelog
 - 2026-11-01 — Tracker created. Branch `feat/backend-api-and-sandbox` started for tasks 5–11.
+- 2026-11-01 — Tasks 9–10 done on `wip/arbiter-sandbox`: DockerExecutionRunner + get_execution_runner (SANDBOX_MODE), sandbox/Dockerfile, pluggable SemanticJudge (Heuristic/Claude).

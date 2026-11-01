@@ -6,3 +6,6 @@ pydantic-settings>=2.2.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 python-dotenv>=1.0.0
+
+# Optional (only if LLM_JUDGE_ENABLED=true): Claude semantic judge
+# anthropic>=0.40.0

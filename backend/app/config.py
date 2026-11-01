@@ -66,6 +66,23 @@ class Settings(BaseSettings):
         description="Receiver account for verified worker payouts",
     )
 
+    # Arbiter sandbox and semantic judge
+    SANDBOX_MODE: str = Field(
+        default="auto",
+        description="Test execution backend: 'docker', 'subprocess' or 'auto'",
+    )
+    SANDBOX_IMAGE: str = Field(
+        default="aegispay-sandbox-runner:latest",
+        description="Docker image used by the hardened sandbox runner",
+    )
+    LLM_JUDGE_ENABLED: bool = Field(
+        default=False,
+        description="Use Claude as semantic judge (needs ANTHROPIC_API_KEY)",
+    )
+    LLM_JUDGE_MODEL: str = Field(default="claude-haiku-5-5", description="Claude model id for the judge")
+    LLM_JUDGE_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, description="Judge call timeout")
+    ANTHROPIC_API_KEY: str = Field(default="", description="Anthropic API key (optional)")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

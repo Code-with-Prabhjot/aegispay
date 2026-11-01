@@ -17,6 +17,7 @@ Implements:
 """
 
 import ast
+import logging
 import os
 import re
 import shutil
@@ -26,7 +27,10 @@ import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.app.schemas import ArbitrationReport, SettlementSplitResult
+from backend.app.services.llm_judge import HeuristicJudge, SemanticJudge
 from backend.app.services.paypal_escrow import compute_settlement_split_micros
+
+logger = logging.getLogger(__name__)
 
 
 class AstSecurityScanner(ast.NodeVisitor):
@@ -281,6 +285,136 @@ class CodeExecutionRunner:
         return passed, total
 
 
+class DockerExecutionRunner:
+    """
+    Runs pytest inside an ephemeral hardened Docker container (dossier Fix #6).
+    Same run_tests() interface and return type as CodeExecutionRunner.
+    """
+
+    HARDENING_FLAGS: List[str] = [
+        "--network", "none",
+        "--read-only",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+        "--memory", "256m",
+        "--memory-swap", "256m",
+        "--cpus", "0.5",
+        "--pids-limit", "64",
+        "--security-opt", "no-new-privileges:true",
+        "--cap-drop", "ALL",
+    ]
+
+    def __init__(
+        self,
+        timeout_seconds: float = 5.0,
+        image: str = "aegispay-sandbox-runner:latest",
+        docker_bin: str = "docker",
+    ) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.image = image
+        self.docker_bin = docker_bin
+
+    def run_tests(
+        self,
+        worker_code: str,
+        test_code: str,
+        deliverable_filename: str = "deliverable.py",
+        test_filename: str = "test_deliverable.py",
+        timeout: Optional[float] = None,
+    ) -> Tuple[int, int, str]:
+        """Returns (passed_tests, total_tests, output), like CodeExecutionRunner."""
+        exec_timeout = timeout or self.timeout_seconds
+        temp_dir = tempfile.mkdtemp(prefix="aegis_job_")
+        container_name = f"aegis-sbx-{os.path.basename(temp_dir)}"
+
+        try:
+            # mkdtemp is 0700; the non-root container user needs read access.
+            os.chmod(temp_dir, 0o755)
+            for name, content in (
+                (deliverable_filename, worker_code),
+                (test_filename, test_code),
+            ):
+                path = os.path.join(temp_dir, name)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.chmod(path, 0o644)
+
+            cmd = [
+                self.docker_bin, "run", "--rm",
+                "--name", container_name,
+                *self.HARDENING_FLAGS,
+                "-v", f"{temp_dir}:/workspace:ro",
+                self.image,
+                # Image ENTRYPOINT is pytest.
+                f"/workspace/{test_filename}",
+                "--tb=short", "-q", "-p", "no:cacheprovider",
+                "--rootdir", "/workspace",
+            ]
+
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=exec_timeout
+                )
+            except subprocess.TimeoutExpired as exc:
+                self._kill_container(container_name)
+                output = f"Execution timed out (exceeded {exec_timeout:.1f}s threshold)."
+                if exc.stdout:
+                    raw = exc.stdout
+                    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+                    output += "\nStdout before timeout:\n" + text
+                return 0, 1, output
+            except OSError as exc:
+                return 0, 1, f"Docker execution failed to start: {exc}"
+
+            output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            passed, total = CodeExecutionRunner._parse_pytest_output(output, proc.returncode)
+            return passed, total, output
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _kill_container(self, container_name: str) -> None:
+        try:
+            subprocess.run(
+                [self.docker_bin, "kill", container_name],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("docker kill %s failed: %s", container_name, exc)
+
+
+def _docker_available(image: str, docker_bin: str = "docker") -> bool:
+    """True if the daemon answers `docker info` and the sandbox image exists."""
+    try:
+        info = subprocess.run([docker_bin, "info"], capture_output=True, text=True, timeout=10)
+        if info.returncode != 0:
+            return False
+        img = subprocess.run(
+            [docker_bin, "image", "inspect", image], capture_output=True, text=True, timeout=10
+        )
+        return img.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def get_execution_runner(settings: Any, timeout_seconds: float = 5.0) -> Any:
+    """Selects a runner by settings.SANDBOX_MODE: docker | subprocess | auto (default)."""
+    mode = str(getattr(settings, "SANDBOX_MODE", "auto")).strip().lower()
+    image = getattr(settings, "SANDBOX_IMAGE", "aegispay-sandbox-runner:latest")
+    if mode == "docker":
+        return DockerExecutionRunner(timeout_seconds=timeout_seconds, image=image)
+    if mode == "subprocess":
+        return CodeExecutionRunner(timeout_seconds=timeout_seconds)
+    if mode != "auto":
+        logger.warning("Unknown SANDBOX_MODE %r; treating as 'auto'", mode)
+    if _docker_available(image):
+        return DockerExecutionRunner(timeout_seconds=timeout_seconds, image=image)
+    logger.warning(
+        "Docker sandbox unavailable (daemon or image '%s' missing); falling back to the "
+        "NON-ISOLATED subprocess runner",
+        image,
+    )
+    return CodeExecutionRunner(timeout_seconds=timeout_seconds)
+
+
 class ArbitrationArbiter:
     """
     Autonomous Verification Arbiter.
@@ -295,10 +429,12 @@ class ArbitrationArbiter:
     def __init__(
         self,
         scanner: Optional[AstSecurityScanner] = None,
-        runner: Optional[CodeExecutionRunner] = None,
+        runner: Optional[Any] = None,
+        judge: Optional[SemanticJudge] = None,
     ) -> None:
         self.scanner = scanner or AstSecurityScanner()
         self.runner = runner or CodeExecutionRunner(timeout_seconds=5.0)
+        self.judge: SemanticJudge = judge or HeuristicJudge()
 
     @staticmethod
     def compute_semantic_rubric(source_code: str) -> float:
@@ -371,12 +507,17 @@ class ArbitrationArbiter:
             s_pytest = (passed_tests / total_tests) if total_tests > 0 else 0.0
 
         # 3. Semantic Rubric
-        s_semantic = (
-            semantic_score
-            if semantic_score is not None
-            else self.compute_semantic_rubric(worker_code)
-        )
+        rationale: Optional[str] = None
+        if semantic_score is not None:
+            s_semantic = semantic_score
+        else:
+            judged = self.judge.judge(worker_code)
+            s_semantic = judged.score
+            rationale = judged.rationale
         s_semantic = max(0.0, min(1.0, s_semantic))
+        if rationale:
+            # ArbitrationReport has no rationale field; append to stdout (non-breaking).
+            stdout = f"{stdout}\n[semantic judge rationale] {rationale}"
 
         # 4. Composite Score with AST Hard Veto
         if s_ast == 0.0:
