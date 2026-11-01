@@ -151,6 +151,20 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/VerifyWebhookSignatureResponse"}
+  /v1/notifications/webhooks/{webhook_id}:
+    get:
+      operationId: webhooksGet
+      summary: Show webhook details (used by the sandbox credential check)
+      parameters:
+        - {name: webhook_id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Webhook registration
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WebhookRegistration"}
+        "404":
+          description: Webhook ID not found
 components:
   securitySchemes:
     basicAuth: {type: http, scheme: basic}
@@ -342,6 +356,20 @@ components:
       required: [verification_status]
       properties:
         verification_status: {type: string, enum: [SUCCESS, FAILURE]}
+    WebhookRegistration:
+      x-aegispay-unverified: true
+      type: object
+      required: [id, url, event_types]
+      properties:
+        id: {type: string}
+        url: {type: string}
+        event_types:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: {type: string}
     # ---- Webhook event payloads (delivered to /api/v1/webhooks/paypal) ----
     # Common envelope per PayPal webhook docs; `resource` shape for payout items is
     # x-aegispay-unverified (we only read resource.payout_batch_id / resource.payout_item.payout_batch_id).
