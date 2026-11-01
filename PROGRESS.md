@@ -23,6 +23,8 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 | 12 | PayPal | Live sandbox wiring: create sandbox accounts, fill `.env`, register webhook, end-to-end run | 🔒 | | | Needs PayPal developer login |
 | 13 | PayPal | Postman collection export for the API | ✅ | Claude (Sonnet agent) | feat/backend-api-and-sandbox | `postman/AegisPay.postman_collection.json` + README |
 | 17 | Integration | Integration: arbiter factories wired, API contract reconciled, payout retry idempotency fix | ✅ | Claude (Sonnet agent) | feat/backend-api-and-sandbox | Orchestrator uses get_execution_runner/get_semantic_judge; payout keys vary per attempt; 123 tests |
+| 18 | PayPal | Webhook signature listener (`api/routes_webhooks.py`): authorization created/voided, capture completed, payout item events; `PAYPAL_WEBHOOK_MOCK_BYPASS` | ✅ | Raksha Sendhil | feat/paypal-webhooks | Tested against stubs; no live PayPal delivery yet (task 12) |
+| 19 | PayPal | Sandbox credential check (`python -m backend.app.services.sandbox_check`) | 🔒 | Raksha Sendhil | feat/paypal-webhooks | Code done and tested against stubs; needs real sandbox credentials to run |
 | 14 | Frontend | `@paypal/react-paypal-js` Smart Payment Buttons | 🔒 | | | Needs sandbox client ID |
 | 15 | Sponsor | APIMatic schema validation (`backend/apimatic_validation/`) | 🔒 | Claude (Sonnet agent) | feat/backend-api-and-sandbox | Specs + drift tests merged; all 3 drifts fixed (0 xfail). APIMatic CLI run still needs an API key (CLI demands auth even for `api validate`) |
 | 16 | Release | Vercel deploy, repo public, Devpost write-up, demo video | 🔒 | | | Needs account access |
@@ -35,6 +37,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 - 2026-11-01 — Integration: arbiter factories wired into the orchestrator, frontend api layer reconciled with the real API (`transitions` -> `history`, lowercase scenario names, submit body typed), real-engine payout retry now uses per-attempt sender_batch_id/item_id, Postman collection added (task 13). Mock-mode smoke of all 3 scenarios passes; frontend build + lint pass. 123 tests pass.
 - 2026-11-01 — Task 15 (branch `wip/apimatic`): PayPal subset + AegisPay OpenAPI specs, `export_openapi.py`, `tests/test_apimatic_contract.py` (3 strict xfails = real drift, see test reasons), `requirements-dev.txt`, APIMatic CI workflow. Real drift: `is_final_capture` should be `final_capture`.
 - 2026-11-01 — Merged `wip/apimatic` and fixed the 3 contract drifts: capture body `is_final_capture` -> `final_capture` (+ `note_to_payer` truncated to 255), mock payout 201 response drops `items`, webhook `transaction_status` SUCCEEDED -> SUCCESS (spec enum corrected). Removed all xfails; 144 pass with dev deps, 123 pass + contract tests skipped without.
+- 2026-11-01 — Tasks 18-19 (branch `feat/paypal-webhooks`): moved the webhook route from `main.py` to `api/routes_webhooks.py`; added the authorization created/voided and capture completed handlers (each recovers a lost synchronous response, and each is a no-op when that response already landed); added `PAYPAL_WEBHOOK_MOCK_BYPASS` (rejected in live mode); the listener fails closed if a non-mock mode has fallen back to the mock engine; added the sandbox credential check.
 
 ## Known gaps
 - `DAILY_SPEND_LIMIT_MICROS` is not enforced anywhere.
@@ -42,5 +45,6 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started · 🔒 needs a h
 - The real PayPal flow needs a buyer-approval step (Orders v2 authorize); no live sandbox test has been run.
 - Capture-declined leaves the authorization hold unreleased (design decision pending).
 - Docker runner and Claude judge are only tested with mocks.
+- Webhook signature verification has only run against stubs. The parsed event is re-serialized for `verify-webhook-signature`, so confirm with a real sandbox delivery that PayPal accepts it.
 - The frontend has not been exercised in a browser (build/lint only).
 - `npm audit` reports warnings for frontend dependencies.
