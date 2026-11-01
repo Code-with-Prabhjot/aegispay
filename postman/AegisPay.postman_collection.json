@@ -1,0 +1,444 @@
+{
+  "info": {
+    "name": "AegisPay API",
+    "description": "All /api/v1 routes of the AegisPay escrow backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "pm.test('status ok', function () { pm.expect(pm.response.json().status).to.eql('ok'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create contract",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/contracts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"buyer_agent_id\": \"buyer-agent-demo\",\n  \"worker_agent_id\": \"worker-agent-alpha\",\n  \"worker_paypal_email\": \"worker@example.com\",\n  \"budget_micros\": 15000000,\n  \"task_description\": \"Build a token bucket rate limiter\",\n  \"timeout_seconds\": 3600\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 201', function () { pm.expect([201]).to.include(pm.response.code); });",
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set('agreementId', j.agreement_id);",
+              "pm.test('auth locked', function () { pm.expect(j.fsm_state).to.eql('PAYPAL_AUTH_LOCKED'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List contracts",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/contracts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts"
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "pm.test('has contracts array', function () { pm.expect(pm.response.json().contracts).to.be.an('array'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get contract",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/contracts/{{agreementId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts",
+            "{{agreementId}}"
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200/404', function () { pm.expect([200, 404]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submit work",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/contracts/{{agreementId}}/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts",
+            "{{agreementId}}",
+            "submit"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"source_code\": \"class Limiter:\\n    \\\"\\\"\\\"Trivial limiter.\\\"\\\"\\\"\\n\\n    def allow(self) -> bool:\\n        return True\\n\",\n  \"test_suite\": \"from deliverable import Limiter\\n\\ndef test_allow():\\n    assert Limiter().allow()\\n\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200/409', function () { pm.expect([200, 409]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Check expiry",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/contracts/{{agreementId}}/check-expiry",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts",
+            "{{agreementId}}",
+            "check-expiry"
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200/404', function () { pm.expect([200, 404]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Retry payout",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/contracts/{{agreementId}}/payout/retry",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "contracts",
+            "{{agreementId}}",
+            "payout",
+            "retry"
+          ]
+        },
+        "description": "Only valid from PAYOUT_FAILED_REVERSED; otherwise 409."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200/409', function () { pm.expect([200, 409]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Run demo scenario: clean_pass",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/demo/scenarios/clean_pass?payout_outcome=succeeded",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "demo",
+            "scenarios",
+            "clean_pass"
+          ],
+          "query": [
+            {
+              "key": "payout_outcome",
+              "value": "succeeded"
+            }
+          ]
+        },
+        "description": "Requires PAYPAL_MODE=mock. Name is case-insensitive."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "pm.test('final state SETTLED_COMPLETE', function () { pm.expect(pm.response.json().fsm_state).to.eql('SETTLED_COMPLETE'); });",
+              "pm.test('ledger balanced', function () { pm.expect(pm.response.json()).to.have.property('balances'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Run demo scenario: partial_defect",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/demo/scenarios/partial_defect?payout_outcome=succeeded",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "demo",
+            "scenarios",
+            "partial_defect"
+          ],
+          "query": [
+            {
+              "key": "payout_outcome",
+              "value": "succeeded"
+            }
+          ]
+        },
+        "description": "Requires PAYPAL_MODE=mock. Name is case-insensitive."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "pm.test('final state SETTLED_COMPLETE', function () { pm.expect(pm.response.json().fsm_state).to.eql('SETTLED_COMPLETE'); });",
+              "pm.test('ledger balanced', function () { pm.expect(pm.response.json()).to.have.property('balances'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Run demo scenario: malicious_injection",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/demo/scenarios/malicious_injection?payout_outcome=succeeded",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "demo",
+            "scenarios",
+            "malicious_injection"
+          ],
+          "query": [
+            {
+              "key": "payout_outcome",
+              "value": "succeeded"
+            }
+          ]
+        },
+        "description": "Requires PAYPAL_MODE=mock. Name is case-insensitive."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "pm.test('final state ESCROW_VOIDED_REFUNDED', function () { pm.expect(pm.response.json().fsm_state).to.eql('ESCROW_VOIDED_REFUNDED'); });",
+              "pm.test('ledger balanced', function () { pm.expect(pm.response.json()).to.have.property('balances'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ledger",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/ledger",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "ledger"
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.expect([200]).to.include(pm.response.code); });",
+              "const j = pm.response.json();",
+              "pm.test('entries + balances', function () { pm.expect(j.entries).to.be.an('array'); pm.expect(j.balances).to.be.an('object'); });",
+              "pm.test('balanced', function () { pm.expect(j.balanced).to.eql(true); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "PayPal webhook (payout succeeded)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/paypal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "webhooks",
+            "paypal"
+          ]
+        },
+        "description": "In mock mode signatures are accepted; unknown batch ids return status ignored_unknown_payout. Use a payout_batch_id from a contract in PAYOUT_DISPATCHED.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"WH-POSTMAN-1\",\n  \"event_type\": \"PAYMENT.PAYOUTS-ITEM.SUCCEEDED\",\n  \"resource\": {\n    \"payout_batch_id\": \"MOCKPAYOUT-UNKNOWN\",\n    \"transaction_status\": \"SUCCESS\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200/401', function () { pm.expect([200, 401]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000/api/v1"
+    },
+    {
+      "key": "agreementId",
+      "value": ""
+    }
+  ]
+}
