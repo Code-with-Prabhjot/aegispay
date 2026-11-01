@@ -196,6 +196,12 @@ class Repository:
         rows = self.db.query("SELECT * FROM contracts WHERE agreement_id = ?", (agreement_id,))
         return self._row_to_contract(rows[0]) if rows else None
 
+    def get_contract_by_authorization(self, authorization_id: str) -> Optional[ContractRecord]:
+        rows = self.db.query(
+            "SELECT * FROM contracts WHERE paypal_authorization_id = ?", (authorization_id,)
+        )
+        return self._row_to_contract(rows[0]) if rows else None
+
     def list_contracts(self, limit: int = 200) -> List[ContractRecord]:
         rows = self.db.query("SELECT * FROM contracts ORDER BY created_at DESC LIMIT ?", (limit,))
         return [self._row_to_contract(r) for r in rows]
@@ -274,6 +280,9 @@ class Repository:
 
     def set_webhook_outcome(self, event_id: str, outcome: str) -> None:
         self.db.execute("UPDATE webhook_events SET outcome = ? WHERE event_id = ?", (outcome, event_id))
+
+    def delete_webhook_event(self, event_id: str) -> None:
+        self.db.execute("DELETE FROM webhook_events WHERE event_id = ?", (event_id,))
 
     def get_webhook_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         rows = self.db.query("SELECT * FROM webhook_events WHERE event_id = ?", (event_id,))
