@@ -7,10 +7,11 @@ All routes live under /api/v1.
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.app.api.routes_webhooks import router as webhooks_router
 from backend.app.config import Settings, settings as default_settings
 from backend.app.db import Repository
 from backend.app.schemas import SlaContractCreate
@@ -153,27 +154,7 @@ def create_app(
             "balanced": ledger.verify_balance_conservation(),
         }
 
-    @api.post("/webhooks/paypal")
-    async def paypal_webhook(request: Request) -> Dict[str, Any]:
-        try:
-            event = await request.json()
-        except Exception:
-            raise HTTPException(400, "Invalid JSON body")
-        if not isinstance(event, dict) or not event.get("id") or not event.get("event_type"):
-            raise HTTPException(400, "Webhook event requires 'id' and 'event_type'")
-        h = request.headers
-        verified = await paypal.verify_webhook_signature(
-            transmission_id=h.get("paypal-transmission-id", ""),
-            transmission_time=h.get("paypal-transmission-time", ""),
-            cert_url=h.get("paypal-cert-url", ""),
-            auth_algo=h.get("paypal-auth-algo", ""),
-            transmission_sig=h.get("paypal-transmission-sig", ""),
-            webhook_event=event,
-        )
-        if not verified:
-            raise HTTPException(401, "Webhook signature verification failed")
-        return await orch.handle_webhook(event)
-
+    api.include_router(webhooks_router)
     app.include_router(api)
     return app
 
