@@ -54,11 +54,16 @@ class DoubleEntryLedgerEngine:
         LedgerAccount.PAYPAL_RAIL_EXPENSE.value,
     }
 
-    def __init__(self, initial_balances: Optional[Dict[str, int]] = None):
+    def __init__(
+        self,
+        initial_balances: Optional[Dict[str, int]] = None,
+        repository: Optional[Any] = None,
+    ):
         """
         Initializes ledger with optional starting balances (e.g., buyer vault pre-funding).
         Balances are tracked in integer micro-dollars ($1.00 USD = 1,000,000 micros).
         """
+        self._repo = repository  # optional backend.app.db.Repository for persistence
         self._entries: List[DoubleEntryLedgerEntry] = []
         self._balances: Dict[str, int] = {acc: 0 for acc in self.ALLOWED_ACCOUNTS}
 
@@ -69,6 +74,21 @@ class DoubleEntryLedgerEngine:
                 if amount < 0:
                     raise NegativeBalanceError(f"Initial balance for '{acc}' cannot be negative: {amount}")
                 self._balances[acc] = amount
+
+    @classmethod
+    def from_repository(cls, repository: Any) -> "DoubleEntryLedgerEngine":
+        """Rebuilds in-memory state (entries + balances) from persisted rows, then keeps persisting."""
+        engine = cls()
+        for row in repository.load_ledger_entries():
+            e = row["entry"]
+            if row["kind"] == "DEPOSIT":
+                engine._balances[e.debit_account] += e.amount_micros
+            else:
+                engine._balances[e.debit_account] += e.amount_micros
+                engine._balances[e.credit_account] -= e.amount_micros
+                engine._entries.append(e)
+        engine._repo = repository
+        return engine
 
     @property
     def entries(self) -> List[DoubleEntryLedgerEntry]:
@@ -94,6 +114,17 @@ class DoubleEntryLedgerEngine:
         if amount_micros <= 0:
             raise ValueError(f"Deposit amount must be strictly positive: {amount_micros}")
 
+        if self._repo is not None:
+            self._repo.append_ledger_entries(
+                [DoubleEntryLedgerEntry(
+                    debit_account=account,
+                    credit_account="external_funding",
+                    amount_micros=amount_micros,
+                    reference_id=reference_id,
+                    description=description or "External deposit",
+                )],
+                kind="DEPOSIT",
+            )
         self._balances[account] += amount_micros
 
     def record_entry(self, entry: DoubleEntryLedgerEntry) -> DoubleEntryLedgerEntry:
@@ -172,6 +203,10 @@ class DoubleEntryLedgerEngine:
                     f"Transaction rejected: Account '{acc}' has balance {current} micros, "
                     f"attempted debit delta {delta} micros resulting in negative balance {projected} micros."
                 )
+
+        # Persist first so a storage failure leaves memory untouched
+        if self._repo is not None:
+            self._repo.append_ledger_entries(entries, kind="TRANSFER")
 
         # Apply state changes atomically
         for acc, delta in tentative_deltas.items():
