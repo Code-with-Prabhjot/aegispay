@@ -212,6 +212,54 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Ledger Api V1 Ledger Get
+  /api/v1/agreements/{agreement_id}/detail:
+    get:
+      summary: Get Agreement Detail
+      operationId: get_agreement_detail_api_v1_agreements__agreement_id__detail_get
+      parameters:
+      - name: agreement_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agreement Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgreementDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{agreement_id}/detail:
+    get:
+      summary: Get Contract Detail
+      operationId: get_contract_detail_api_v1_contracts__agreement_id__detail_get
+      parameters:
+      - name: agreement_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agreement Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgreementDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/webhooks/paypal:
     post:
       summary: Paypal Webhook
@@ -227,6 +275,185 @@ paths:
                 title: Response Paypal Webhook Api V1 Webhooks Paypal Post
 components:
   schemas:
+    AgreementDetailResponse:
+      properties:
+        agreement_id:
+          type: string
+          title: Agreement Id
+          description: Unique SLA contract identifier
+        buyer_agent_id:
+          type: string
+          title: Buyer Agent Id
+          description: Identifier of the buyer agent
+        worker_agent_id:
+          type: string
+          title: Worker Agent Id
+          description: Identifier of the worker agent
+        worker_paypal_email:
+          type: string
+          title: Worker Paypal Email
+          description: PayPal receiver email for payout
+        budget_micros:
+          type: integer
+          title: Budget Micros
+          description: Agreed escrow budget in micro-dollars
+        task_description:
+          type: string
+          title: Task Description
+          description: Task requirements and SLA description
+        timeout_seconds:
+          type: integer
+          title: Timeout Seconds
+          description: Execution timeout in seconds
+        fsm_state:
+          $ref: '#/components/schemas/FsmState'
+          description: Current state in the 11-state financial FSM
+        paypal_order_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Order Id
+          description: PayPal v2 Order ID
+        paypal_authorization_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Authorization Id
+          description: PayPal Authorization Hold ID
+        paypal_capture_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Capture Id
+          description: PayPal Capture ID if captured
+        paypal_payout_batch_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Payout Batch Id
+          description: PayPal Batch Payout ID if disbursed
+        verification_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Verification Score
+          description: Composite arbitration score [0.0, 1.0]
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: Contract creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+          description: Last state update timestamp
+        budget_usd:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Budget Usd
+          description: Budget in USD string format
+        test_assertions:
+          items:
+            $ref: '#/components/schemas/TestAssertionItem'
+          type: array
+          title: Test Assertions
+          description: Nested child collection of test case assertions
+        ast_security_audit:
+          $ref: '#/components/schemas/AstSecurityAudit'
+          description: Static analysis AST security report
+        ledger_journal:
+          items:
+            $ref: '#/components/schemas/LedgerJournalLeg'
+          type: array
+          title: Ledger Journal
+          description: Double-entry journal legs recorded for this contract
+        transitions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Transitions
+          description: FSM state transition history records
+        arbitration_report:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Arbitration Report
+          description: Raw arbitration evaluation report payload
+      type: object
+      required:
+      - agreement_id
+      - buyer_agent_id
+      - worker_agent_id
+      - worker_paypal_email
+      - budget_micros
+      - task_description
+      - timeout_seconds
+      - fsm_state
+      - created_at
+      - updated_at
+      title: AgreementDetailResponse
+      description: 'AG Grid Master-Detail nested response rehydrated from SQLite.
+
+        Includes test assertions, AST security scan details, and double-entry ledger
+        legs.'
+    AstSecurityAudit:
+      properties:
+        is_clean:
+          type: boolean
+          title: Is Clean
+          description: True if deliverable has zero security perimeter violations
+        scanned_imports:
+          items:
+            type: string
+          type: array
+          title: Scanned Imports
+          description: All module imports discovered during AST traversal
+        blocked_calls:
+          items:
+            type: string
+          type: array
+          title: Blocked Calls
+          description: Prohibited built-in calls or blacklisted modules flagged
+        score:
+          type: number
+          maximum: 1.0
+          minimum: 0.0
+          title: Score
+          description: AST security score (1.0 = clean, 0.0 = hard veto)
+          default: 1.0
+      type: object
+      required:
+      - is_clean
+      title: AstSecurityAudit
+      description: Static AST security report breakdown for master-detail inspection.
+    FsmState:
+      type: string
+      enum:
+      - AGREEMENT_DRAFTED
+      - PAYPAL_AUTH_LOCKED
+      - AUTH_EXPIRED
+      - SANDBOX_EXECUTING
+      - ARBITRATION_AUDITING
+      - FULL_CAPTURE_PENDING
+      - PARTIAL_CAPTURE_PENDING
+      - VOID_PENDING
+      - PAYPAL_CAPTURED
+      - PARTIAL_CAPTURED
+      - CAPTURE_DECLINED
+      - ESCROW_VOIDED_REFUNDED
+      - PAYOUT_DISPATCHED
+      - SETTLED_COMPLETE
+      - PAYOUT_FAILED_REVERSED
+      title: FsmState
+      description: 'Finite State Machine (FSM) states for the AegisPay Escrow & Settlement
+        lifecycle.
+
+        Covers the 11 logical milestones and all branch/terminal states defined in
+        the blueprint.'
     HTTPValidationError:
       properties:
         detail:
@@ -236,6 +463,43 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    LedgerJournalLeg:
+      properties:
+        debit_account:
+          type: string
+          title: Debit Account
+          description: Destination debit account
+        credit_account:
+          type: string
+          title: Credit Account
+          description: Source credit account
+        amount_micros:
+          type: integer
+          title: Amount Micros
+          description: Transaction amount in integer micro-dollars
+        amount_usd:
+          type: string
+          title: Amount Usd
+          description: Formatted USD string representation
+        memo:
+          type: string
+          title: Memo
+          description: Accounting memo / description
+          default: ''
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: Timestamp when journal leg was recorded
+      type: object
+      required:
+      - debit_account
+      - credit_account
+      - amount_micros
+      - amount_usd
+      - created_at
+      title: LedgerJournalLeg
+      description: Double-entry journal leg formatted for master-detail table expansion.
     SlaContractCreate:
       properties:
         agreement_id:
@@ -309,6 +573,33 @@ components:
       - source_code
       - test_suite
       title: SubmitWork
+    TestAssertionItem:
+      properties:
+        name:
+          type: string
+          title: Name
+          description: Name of the test function or assertion
+        status:
+          type: string
+          title: Status
+          description: 'Test outcome status: PASSED or FAILED'
+        duration_ms:
+          type: number
+          title: Duration Ms
+          description: Execution duration in milliseconds
+          default: 0.0
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+          description: Captured failure traceback or error message
+      type: object
+      required:
+      - name
+      - status
+      title: TestAssertionItem
+      description: Individual unit test assertion result for master-detail inspection.
     ValidationError:
       properties:
         loc:

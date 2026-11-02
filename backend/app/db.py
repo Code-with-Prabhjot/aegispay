@@ -241,6 +241,24 @@ class Repository:
             })
         return out
 
+    def get_ledger_entries_for_agreement(self, agreement_id: str) -> List[DoubleEntryLedgerEntry]:
+        """Returns all double-entry ledger entries for a specific agreement in order."""
+        out = []
+        for r in self.db.query("SELECT * FROM ledger_entries WHERE reference_id = ? ORDER BY seq", (agreement_id,)):
+            out.append(
+                DoubleEntryLedgerEntry(
+                    entry_id=r["entry_id"],
+                    debit_account=r["debit_account"],
+                    credit_account=r["credit_account"],
+                    amount_micros=r["amount_micros"],
+                    reference_id=r["reference_id"],
+                    currency=r["currency"],
+                    description=r["description"],
+                    created_at=_dt(r["created_at"]),
+                )
+            )
+        return out
+
     # -------------------------------------------------------------------- payouts
     def save_payout(self, payout_id: str, agreement_id: str, batch_id: str, amount_micros: int,
                     status: str, attempt: int, now: datetime) -> None:

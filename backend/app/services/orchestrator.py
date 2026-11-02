@@ -66,6 +66,7 @@ class EscrowOrchestrator:
         settings: Settings,
         arbiter: Optional[ArbitrationArbiter] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        broadcaster: Optional[Any] = None,
     ):
         self.repo = repo
         self.ledger = ledger
@@ -75,7 +76,12 @@ class EscrowOrchestrator:
             runner=get_execution_runner(settings), judge=get_semantic_judge(settings)
         )
         self.clock = clock
+        self.broadcaster = broadcaster
         self._lock = asyncio.Lock()  # serialise state-changing flows (single-process demo)
+
+    def set_broadcaster(self, broadcaster: Any) -> None:
+        """Sets or updates the real-time event broadcaster."""
+        self.broadcaster = broadcaster
 
     # ------------------------------------------------------------------ helpers
     def get(self, agreement_id: str) -> fsm.ContractRecord:
@@ -85,7 +91,21 @@ class EscrowOrchestrator:
         return c
 
     def _move(self, c: fsm.ContractRecord, state: FsmState, reason: Optional[str] = None):
-        return fsm.transition(c, state, reason=reason, now=self.clock())
+        prev_state = c.fsm_state
+        rec = fsm.transition(c, state, reason=reason, now=self.clock())
+        if self.broadcaster:
+            self.broadcaster.broadcast_sync({
+                "event_type": "FSM_TRANSITION",
+                "agreement_id": c.agreement_id,
+                "timestamp": self.clock().isoformat(),
+                "data": {
+                    "from_state": prev_state.value if prev_state else None,
+                    "to_state": state.value,
+                    "reason": reason,
+                    "contract": c.to_response().model_dump(mode="json"),
+                },
+            })
+        return rec
 
     # ------------------------------------------------------------------- create
     async def create_contract(self, payload: SlaContractCreate) -> fsm.ContractRecord:
@@ -111,6 +131,18 @@ class EscrowOrchestrator:
                                      "SLA contract drafted", now)
             )
             self.repo.save_contract(c)
+            if self.broadcaster:
+                self.broadcaster.broadcast_sync({
+                    "event_type": "FSM_TRANSITION",
+                    "agreement_id": c.agreement_id,
+                    "timestamp": now.isoformat(),
+                    "data": {
+                        "from_state": None,
+                        "to_state": FsmState.AGREEMENT_DRAFTED.value,
+                        "reason": "SLA contract drafted",
+                        "contract": c.to_response().model_dump(mode="json"),
+                    },
+                })
 
             try:
                 order = await self.engine.create_escrow_authorization_order(
@@ -184,6 +216,20 @@ class EscrowOrchestrator:
             )
             c.report = report.model_dump(mode="json")
             c.verification_score = report.composite_score
+            if self.broadcaster:
+                self.broadcaster.broadcast_sync({
+                    "event_type": "ARBITER_EVALUATED",
+                    "agreement_id": agreement_id,
+                    "timestamp": self.clock().isoformat(),
+                    "data": {
+                        "report": report.model_dump(mode="json"),
+                        "verification_score": report.composite_score,
+                        "decision": report.settlement.decision,
+                        "passed_tests": report.passed_tests,
+                        "total_tests": report.total_tests,
+                        "ast_safe": report.ast_safe,
+                    },
+                })
             split = report.settlement
             self._move(c, fsm.target_state_for_capture(split.decision),
                        f"Score {report.composite_score:.4f} -> {split.decision}")

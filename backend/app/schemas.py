@@ -262,4 +262,59 @@ class ArbitrationReport(BaseModel):
     ast_violations: list[str] = Field(default_factory=list, description="List of detected AST violations")
     stdout: str = Field(default="", description="Captured test runner stdout/stderr")
     settlement: SettlementSplitResult = Field(..., description="Calculated financial settlement split")
+    test_assertions: list["TestAssertionItem"] = Field(default_factory=list, description="List of individual test assertions")
+    scanned_imports: list[str] = Field(default_factory=list, description="All module imports parsed from code")
+
+
+class TestAssertionItem(BaseModel):
+    """Individual unit test assertion result for master-detail inspection."""
+    name: str = Field(..., description="Name of the test function or assertion")
+    status: str = Field(..., description="Test outcome status: PASSED or FAILED")
+    duration_ms: float = Field(default=0.0, description="Execution duration in milliseconds")
+    error_message: Optional[str] = Field(default=None, description="Captured failure traceback or error message")
+
+
+class AstSecurityAudit(BaseModel):
+    """Static AST security report breakdown for master-detail inspection."""
+    is_clean: bool = Field(..., description="True if deliverable has zero security perimeter violations")
+    scanned_imports: list[str] = Field(default_factory=list, description="All module imports discovered during AST traversal")
+    blocked_calls: list[str] = Field(default_factory=list, description="Prohibited built-in calls or blacklisted modules flagged")
+    score: float = Field(default=1.0, ge=0.0, le=1.0, description="AST security score (1.0 = clean, 0.0 = hard veto)")
+
+
+class LedgerJournalLeg(BaseModel):
+    """Double-entry journal leg formatted for master-detail table expansion."""
+    debit_account: str = Field(..., description="Destination debit account")
+    credit_account: str = Field(..., description="Source credit account")
+    amount_micros: int = Field(..., description="Transaction amount in integer micro-dollars")
+    amount_usd: str = Field(..., description="Formatted USD string representation")
+    memo: str = Field(default="", description="Accounting memo / description")
+    created_at: datetime = Field(..., description="Timestamp when journal leg was recorded")
+
+
+class AgreementDetailResponse(SlaContractResponse):
+    """
+    AG Grid Master-Detail nested response rehydrated from SQLite.
+    Includes test assertions, AST security scan details, and double-entry ledger legs.
+    """
+    test_assertions: list[TestAssertionItem] = Field(
+        default_factory=list,
+        description="Nested child collection of test case assertions"
+    )
+    ast_security_audit: AstSecurityAudit = Field(
+        default_factory=lambda: AstSecurityAudit(is_clean=True, scanned_imports=[], blocked_calls=[], score=1.0),
+        description="Static analysis AST security report"
+    )
+    ledger_journal: list[LedgerJournalLeg] = Field(
+        default_factory=list,
+        description="Double-entry journal legs recorded for this contract"
+    )
+    transitions: list[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="FSM state transition history records"
+    )
+    arbitration_report: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw arbitration evaluation report payload"
+    )
 

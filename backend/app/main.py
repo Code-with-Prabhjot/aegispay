@@ -5,17 +5,29 @@ All routes live under /api/v1.
 """
 
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.app.api.routes_webhooks import router as webhooks_router
 from backend.app.config import Settings, settings as default_settings
 from backend.app.db import Repository
-from backend.app.schemas import SlaContractCreate
+from backend.app.schemas import (
+    AgreementDetailResponse,
+    AstSecurityAudit,
+    LedgerJournalLeg,
+    SlaContractCreate,
+    TestAssertionItem,
+)
 from backend.app.services import fsm
+from backend.app.services.broadcaster import (
+    LedgerConnectionManager,
+    format_event_envelope,
+    ledger_broadcaster,
+)
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
 from backend.app.services.orchestrator import (
     EscrowOrchestrator,
@@ -39,10 +51,65 @@ def contract_detail(c: fsm.ContractRecord) -> Dict[str, Any]:
     return data
 
 
+def build_agreement_detail_response(
+    c: fsm.ContractRecord, repo: Repository, ledger: DoubleEntryLedgerEngine
+) -> AgreementDetailResponse:
+    base = c.to_response().model_dump(mode="json")
+    report = c.report or {}
+
+    # 1. Test assertions
+    raw_assertions = report.get("test_assertions", [])
+    assertions: list[TestAssertionItem] = []
+    if raw_assertions:
+        for item in raw_assertions:
+            assertions.append(TestAssertionItem(**item) if isinstance(item, dict) else item)
+    else:
+        p_cnt = report.get("passed_tests", 0)
+        t_cnt = report.get("total_tests", 0)
+        for i in range(p_cnt):
+            assertions.append(TestAssertionItem(name=f"test_{i+1:02d}", status="PASSED", duration_ms=10.0))
+        for i in range(max(0, t_cnt - p_cnt)):
+            assertions.append(TestAssertionItem(name=f"test_{p_cnt+i+1:02d}", status="FAILED", duration_ms=10.0, error_message="Assertion failed"))
+
+    # 2. AST security audit
+    is_clean = bool(report.get("ast_safe", True))
+    ast_audit = AstSecurityAudit(
+        is_clean=is_clean,
+        scanned_imports=report.get("scanned_imports", []),
+        blocked_calls=report.get("ast_violations", []),
+        score=float(report.get("s_ast", 1.0)),
+    )
+
+    # 3. Double-entry ledger journal legs
+    db_entries = repo.get_ledger_entries_for_agreement(c.agreement_id)
+    journal_legs: list[LedgerJournalLeg] = []
+    for entry in db_entries:
+        journal_legs.append(
+            LedgerJournalLeg(
+                debit_account=entry.debit_account,
+                credit_account=entry.credit_account,
+                amount_micros=entry.amount_micros,
+                amount_usd=f"${Decimal(entry.amount_micros) / Decimal(1_000_000):.2f}",
+                memo=entry.description or "",
+                created_at=entry.created_at,
+            )
+        )
+
+    return AgreementDetailResponse(
+        **base,
+        test_assertions=assertions,
+        ast_security_audit=ast_audit,
+        ledger_journal=journal_legs,
+        transitions=[t.to_dict() for t in c.transitions],
+        arbitration_report=c.report,
+    )
+
+
 def create_app(
     settings: Optional[Settings] = None,
     engine: Any = None,
     repo: Optional[Repository] = None,
+    broadcaster: Optional[LedgerConnectionManager] = None,
 ) -> FastAPI:
     cfg = settings or default_settings
 
@@ -60,13 +127,15 @@ def create_app(
         allow_headers=["*"],
     )
 
+    broadcaster_mgr = broadcaster or ledger_broadcaster
     repository = repo or Repository.from_url(cfg.DATABASE_URL)
     paypal = engine or get_paypal_engine(cfg)
-    ledger = DoubleEntryLedgerEngine.from_repository(repository)
-    orch = EscrowOrchestrator(repository, ledger, paypal, cfg)
+    ledger = DoubleEntryLedgerEngine.from_repository(repository, broadcaster=broadcaster_mgr)
+    orch = EscrowOrchestrator(repository, ledger, paypal, cfg, broadcaster=broadcaster_mgr)
     app.state.repo = repository
     app.state.orchestrator = orch
     app.state.ledger = ledger
+    app.state.broadcaster = broadcaster_mgr
 
     api = APIRouter(prefix="/api/v1")
 
@@ -153,6 +222,47 @@ def create_app(
             "balances": ledger.get_all_balances(),
             "balanced": ledger.verify_balance_conservation(),
         }
+
+    @api.get("/agreements/{agreement_id}/detail", response_model=AgreementDetailResponse)
+    async def get_agreement_detail(agreement_id: str) -> AgreementDetailResponse:
+        try:
+            c = orch.get(agreement_id)
+            return build_agreement_detail_response(c, repository, ledger)
+        except NotFoundError as exc:
+            raise _handle(exc)
+
+    @api.get("/contracts/{agreement_id}/detail", response_model=AgreementDetailResponse)
+    async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
+        return await get_agreement_detail(agreement_id)
+
+    async def _ws_ledger_handler(websocket: WebSocket) -> None:
+        await broadcaster_mgr.connect(websocket)
+        try:
+            contracts = [c.to_response().model_dump(mode="json") for c in repository.list_contracts()]
+            snapshot = format_event_envelope(
+                event_type="INITIAL_SNAPSHOT",
+                agreement_id="ALL",
+                data={
+                    "agreements": contracts,
+                    "contracts": contracts,
+                    "balances": ledger.get_all_balances(),
+                    "ledger_entries": ledger.to_records(),
+                    "entries": ledger.to_records(),
+                    "balanced": ledger.verify_balance_conservation(),
+                },
+            )
+            await websocket.send_json(snapshot)
+            while True:
+                msg = await websocket.receive_text()
+                await broadcaster_mgr.handle_heartbeat(websocket, msg)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await broadcaster_mgr.disconnect(websocket)
+
+    api.add_api_websocket_route("/ws/ledger", _ws_ledger_handler)
+    api.add_api_websocket_route("/ws/dashboard", _ws_ledger_handler)
+    app.add_api_websocket_route("/ws/dashboard", _ws_ledger_handler)
 
     api.include_router(webhooks_router)
     app.include_router(api)

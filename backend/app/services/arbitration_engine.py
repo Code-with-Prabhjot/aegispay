@@ -26,7 +26,11 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from backend.app.schemas import ArbitrationReport, SettlementSplitResult
+from backend.app.schemas import (
+    ArbitrationReport,
+    SettlementSplitResult,
+    TestAssertionItem,
+)
 from backend.app.services.llm_judge import HeuristicJudge, SemanticJudge
 from backend.app.services.paypal_escrow import compute_settlement_split_micros
 
@@ -65,6 +69,8 @@ class AstSecurityScanner(ast.NodeVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.violations: List[str] = []
+        self.scanned_imports: List[str] = []
+        self.blocked_calls: List[str] = []
 
     def scan(self, source_code: str) -> Tuple[bool, List[str]]:
         """
@@ -72,10 +78,13 @@ class AstSecurityScanner(ast.NodeVisitor):
         Returns (is_safe, violations).
         """
         self.violations.clear()
+        self.scanned_imports.clear()
+        self.blocked_calls.clear()
         try:
             tree = ast.parse(source_code)
         except SyntaxError as e:
             self.violations.append(f"SyntaxError in submitted source code: {e}")
+            self.blocked_calls.append(f"SyntaxError: {e}")
             return False, list(self.violations)
 
         self.visit(tree)
@@ -85,25 +94,32 @@ class AstSecurityScanner(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             root_module = alias.name.split(".")[0]
+            if alias.name not in self.scanned_imports:
+                self.scanned_imports.append(alias.name)
             if root_module in self.DISALLOWED_IMPORTS:
                 self.violations.append(
                     f"Forbidden import: '{alias.name}' at line {node.lineno}"
                 )
+                self.blocked_calls.append(alias.name)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.module:
             root_module = node.module.split(".")[0]
+            if node.module not in self.scanned_imports:
+                self.scanned_imports.append(node.module)
             if root_module in self.DISALLOWED_IMPORTS:
                 self.violations.append(
                     f"Forbidden import from: '{node.module}' at line {node.lineno}"
                 )
+                self.blocked_calls.append(node.module)
         # Also check imported symbols if any match forbidden modules
         for alias in node.names:
             if alias.name in self.DISALLOWED_IMPORTS:
                 self.violations.append(
                     f"Forbidden import symbol: '{alias.name}' at line {node.lineno}"
                 )
+                self.blocked_calls.append(alias.name)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -119,6 +135,7 @@ class AstSecurityScanner(ast.NodeVisitor):
                 self.violations.append(
                     f"Forbidden call: '{func_name}()' at line {node.lineno}"
                 )
+                self.blocked_calls.append(f"{func_name}()")
             elif func_name == "open":
                 self._check_open_call(node)
 
@@ -233,7 +250,7 @@ class CodeExecutionRunner:
                 "-m",
                 "pytest",
                 test_filename,
-                "-q",
+                "-v",
                 "--tb=short",
                 "-o",
                 "asyncio_default_fixture_loop_scope=function",
@@ -255,9 +272,9 @@ class CodeExecutionRunner:
             except subprocess.TimeoutExpired as exc:
                 output = f"Execution timed out (exceeded {exec_timeout:.1f}s threshold)."
                 if exc.stdout:
-                    output += "\nStdout before timeout:\n" + exc.stdout.decode(
-                        "utf-8", errors="replace"
-                    )
+                    raw = exc.stdout
+                    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+                    output += "\nStdout before timeout:\n" + text
                 return 0, 1, output
 
         finally:
@@ -283,6 +300,43 @@ class CodeExecutionRunner:
             return 0, 0
 
         return passed, total
+
+    @staticmethod
+    def _parse_test_assertions(output: str) -> List[TestAssertionItem]:
+        """Parses individual test items, status, and failure messages from pytest output."""
+        assertions: List[TestAssertionItem] = []
+        matches = list(re.finditer(r"(?:[^\s:]+::)?(test_\w+)\s+(PASSED|FAILED|ERROR)", output))
+        for m in matches:
+            test_name = m.group(1)
+            status_str = m.group(2)
+            error_msg: Optional[str] = None
+            if status_str in ("FAILED", "ERROR"):
+                fail_pat = rf"_{{{3,}}}\s+{re.escape(test_name)}\s+_{{{3,}}}(.*?)(?:_{{{3,}}}|\Z)"
+                fail_match = re.search(fail_pat, output, re.DOTALL)
+                if fail_match:
+                    trace_text = fail_match.group(1).strip()
+                    lines = [line.strip() for line in trace_text.splitlines() if line.strip()]
+                    error_msg = lines[-1] if lines else trace_text[:200]
+                else:
+                    error_msg = f"Test {test_name} failed assertion."
+            assertions.append(
+                TestAssertionItem(
+                    name=test_name,
+                    status="PASSED" if status_str == "PASSED" else "FAILED",
+                    duration_ms=10.0,
+                    error_message=error_msg,
+                )
+            )
+        if not assertions:
+            passed_match = re.search(r"(\d+)\s+passed", output)
+            failed_match = re.search(r"(\d+)\s+failed", output)
+            p_cnt = int(passed_match.group(1)) if passed_match else 0
+            f_cnt = int(failed_match.group(1)) if failed_match else 0
+            for i in range(p_cnt):
+                assertions.append(TestAssertionItem(name=f"test_assertion_{i+1:02d}", status="PASSED", duration_ms=10.0))
+            for i in range(f_cnt):
+                assertions.append(TestAssertionItem(name=f"test_assertion_{p_cnt+i+1:02d}", status="FAILED", duration_ms=10.0, error_message="Assertion failed"))
+        return assertions
 
 
 class DockerExecutionRunner:
@@ -499,12 +553,27 @@ class ArbitrationArbiter:
                 + "\n".join(f"- {v}" for v in violations)
             )
             s_pytest = 0.0
+            test_assertions = [
+                TestAssertionItem(
+                    name="security_perimeter_ast_audit",
+                    status="FAILED",
+                    duration_ms=0.0,
+                    error_message="; ".join(violations),
+                )
+            ]
         else:
             passed_tests, total_tests, stdout = self.runner.run_tests(
                 worker_code=worker_code,
                 test_code=buyer_test_code,
             )
             s_pytest = (passed_tests / total_tests) if total_tests > 0 else 0.0
+            parser = getattr(self.runner, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
+            test_assertions = parser(stdout)
+            if not test_assertions and total_tests > 0:
+                for i in range(passed_tests):
+                    test_assertions.append(TestAssertionItem(name=f"test_{i+1:02d}", status="PASSED", duration_ms=12.0))
+                for i in range(total_tests - passed_tests):
+                    test_assertions.append(TestAssertionItem(name=f"test_{passed_tests+i+1:02d}", status="FAILED", duration_ms=12.0, error_message="Assertion failed"))
 
         # 3. Semantic Rubric
         rationale: Optional[str] = None
@@ -553,4 +622,6 @@ class ArbitrationArbiter:
             ast_violations=violations,
             stdout=stdout,
             settlement=settlement_result,
+            test_assertions=test_assertions,
+            scanned_imports=list(self.scanner.scanned_imports),
         )

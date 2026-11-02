@@ -58,12 +58,14 @@ class DoubleEntryLedgerEngine:
         self,
         initial_balances: Optional[Dict[str, int]] = None,
         repository: Optional[Any] = None,
+        broadcaster: Optional[Any] = None,
     ):
         """
         Initializes ledger with optional starting balances (e.g., buyer vault pre-funding).
         Balances are tracked in integer micro-dollars ($1.00 USD = 1,000,000 micros).
         """
         self._repo = repository  # optional backend.app.db.Repository for persistence
+        self._broadcaster = broadcaster  # optional LedgerConnectionManager for real-time WebSocket events
         self._entries: List[DoubleEntryLedgerEntry] = []
         self._balances: Dict[str, int] = {acc: 0 for acc in self.ALLOWED_ACCOUNTS}
 
@@ -75,10 +77,16 @@ class DoubleEntryLedgerEngine:
                     raise NegativeBalanceError(f"Initial balance for '{acc}' cannot be negative: {amount}")
                 self._balances[acc] = amount
 
+    def set_broadcaster(self, broadcaster: Any) -> None:
+        """Sets or updates the real-time event broadcaster."""
+        self._broadcaster = broadcaster
+
     @classmethod
-    def from_repository(cls, repository: Any) -> "DoubleEntryLedgerEngine":
+    def from_repository(
+        cls, repository: Any, broadcaster: Optional[Any] = None
+    ) -> "DoubleEntryLedgerEngine":
         """Rebuilds in-memory state (entries + balances) from persisted rows, then keeps persisting."""
-        engine = cls()
+        engine = cls(broadcaster=broadcaster)
         for row in repository.load_ledger_entries():
             e = row["entry"]
             if row["kind"] == "DEPOSIT":
@@ -88,6 +96,7 @@ class DoubleEntryLedgerEngine:
                 engine._balances[e.credit_account] -= e.amount_micros
                 engine._entries.append(e)
         engine._repo = repository
+        engine._broadcaster = broadcaster
         return engine
 
     @property
@@ -126,6 +135,21 @@ class DoubleEntryLedgerEngine:
                 kind="DEPOSIT",
             )
         self._balances[account] += amount_micros
+        if self._broadcaster:
+            self._broadcaster.broadcast_sync({
+                "event_type": "LEDGER_TRANSACTION",
+                "agreement_id": reference_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data": {
+                    "debit_account": account,
+                    "credit_account": "external_funding",
+                    "amount_micros": amount_micros,
+                    "amount_usd": f"${Decimal(amount_micros) / Decimal(1_000_000):.2f}",
+                    "reference_id": reference_id,
+                    "memo": description or "External deposit",
+                    "balances": self.get_all_balances(),
+                },
+            })
 
     def record_entry(self, entry: DoubleEntryLedgerEntry) -> DoubleEntryLedgerEntry:
         """
@@ -213,6 +237,26 @@ class DoubleEntryLedgerEngine:
             self._balances[acc] += delta
 
         self._entries.extend(entries)
+
+        if self._broadcaster:
+            for e in entries:
+                self._broadcaster.broadcast_sync({
+                    "event_type": "LEDGER_TRANSACTION",
+                    "agreement_id": e.reference_id,
+                    "timestamp": e.created_at.isoformat() if e.created_at else datetime.now(timezone.utc).isoformat(),
+                    "data": {
+                        "entry_id": e.entry_id,
+                        "debit_account": e.debit_account,
+                        "credit_account": e.credit_account,
+                        "amount_micros": e.amount_micros,
+                        "amount_usd": f"${Decimal(e.amount_micros) / Decimal(1_000_000):.2f}",
+                        "reference_id": e.reference_id,
+                        "memo": e.description or "",
+                        "created_at": e.created_at.isoformat() if e.created_at else datetime.now(timezone.utc).isoformat(),
+                        "balances": self.get_all_balances(),
+                    },
+                })
+
         return entries
 
     def record_settlement(
