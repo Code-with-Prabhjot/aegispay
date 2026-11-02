@@ -724,6 +724,12 @@ components:
           maxLength: 200000
           minLength: 1
           title: Test Suite
+        runtime:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime
+          description: 'Execution runtime: python | typescript | javascript'
       type: object
       required:
       - source_code

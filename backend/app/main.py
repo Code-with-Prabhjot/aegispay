@@ -49,6 +49,7 @@ from backend.app.services.vault_service import (
 class SubmitWork(BaseModel):
     source_code: str = Field(..., min_length=1, max_length=200_000)
     test_suite: str = Field(..., min_length=1, max_length=200_000)
+    runtime: Optional[str] = Field(default=None, description="Execution runtime: python | typescript | javascript")
 
 
 def contract_detail(c: fsm.ContractRecord) -> Dict[str, Any]:
@@ -185,7 +186,7 @@ def create_app(
     @api.post("/contracts/{agreement_id}/submit")
     async def submit(agreement_id: str, body: SubmitWork) -> Dict[str, Any]:
         try:
-            c = await orch.submit_work(agreement_id, body.source_code, body.test_suite)
+            c = await orch.submit_work(agreement_id, body.source_code, body.test_suite, runtime=body.runtime)
         except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
         return contract_detail(c)
@@ -300,6 +301,7 @@ def create_app(
                     agreement_id=call.arguments["agreement_id"],
                     source_code=call.arguments["source_code"],
                     test_suite=call.arguments["test_suite"],
+                    runtime=call.arguments.get("runtime"),
                 )
                 return {"result": contract_detail(contract)}
 

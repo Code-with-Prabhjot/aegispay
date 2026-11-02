@@ -32,6 +32,13 @@ from backend.app.schemas import (
     TestAssertionItem,
 )
 from backend.app.services.llm_judge import HeuristicJudge, SemanticJudge
+from backend.app.services.node_runner import (
+    JsSecurityScanner,
+    NodeCodeRunner,
+    NodeExecutionRunner,
+    NodeExecutionTimeoutError,
+    NodeRunner,
+)
 from backend.app.services.paypal_escrow import compute_settlement_split_micros
 
 logger = logging.getLogger(__name__)
@@ -449,8 +456,16 @@ def _docker_available(image: str, docker_bin: str = "docker") -> bool:
         return False
 
 
-def get_execution_runner(settings: Any, timeout_seconds: float = 5.0) -> Any:
-    """Selects a runner by settings.SANDBOX_MODE: docker | subprocess | auto (default)."""
+SubprocessCodeRunner = CodeExecutionRunner
+DockerCodeRunner = DockerExecutionRunner
+
+
+def get_execution_runner(settings: Any, timeout_seconds: float = 5.0, runtime: str = "python") -> Any:
+    """Selects a runner by runtime and settings.SANDBOX_MODE: docker | subprocess | auto (default)."""
+    r = runtime.strip().lower() if runtime else "python"
+    if r in ("javascript", "typescript", "js", "ts", "node"):
+        return NodeCodeRunner(timeout_seconds=timeout_seconds)
+
     mode = str(getattr(settings, "SANDBOX_MODE", "auto")).strip().lower()
     image = getattr(settings, "SANDBOX_IMAGE", "aegispay-sandbox-runner:latest")
     if mode == "docker":
@@ -473,11 +488,12 @@ class ArbitrationArbiter:
     """
     Autonomous Verification Arbiter.
     Audits deliverables across three orthogonal dimensions:
-    1. s_pytest: Quantitative test suite pass ratio (weight: 0.50)
+    1. s_pytest / s_test: Quantitative test suite pass ratio
     2. s_ast: Static AST security scanner score (weight: 0.25)
     3. s_semantic: Code quality and docstring rubric score (weight: 0.25)
 
     Enforces the Hard Veto: If s_ast == 0.0, total composite score S is locked to 0.00.
+    Supports polyglot execution sandboxes across Python, TypeScript, and JavaScript.
     """
 
     def __init__(
@@ -486,27 +502,60 @@ class ArbitrationArbiter:
         runner: Optional[Any] = None,
         judge: Optional[SemanticJudge] = None,
         consensus_arbiter: Optional[Any] = None,
+        node_runner: Optional[Any] = None,
+        js_scanner: Optional[Any] = None,
     ) -> None:
         self.scanner = scanner or AstSecurityScanner()
+        self.js_scanner = js_scanner or JsSecurityScanner()
         self.runner = runner or CodeExecutionRunner(timeout_seconds=5.0)
+        self.node_runner = node_runner or NodeCodeRunner(timeout_seconds=5.0)
         self.judge: SemanticJudge = judge or HeuristicJudge()
         self.consensus_arbiter = consensus_arbiter
 
     @staticmethod
-    def compute_semantic_rubric(source_code: str) -> float:
+    def detect_runtime(worker_code: str, test_code: str = "", runtime: Optional[str] = None) -> str:
+        """
+        Normalizes or detects execution runtime: 'python' | 'typescript' | 'javascript'.
+        """
+        if runtime:
+            r = runtime.strip().lower()
+            if r in ("typescript", "ts"):
+                return "typescript"
+            if r in ("javascript", "js", "node"):
+                return "javascript"
+            if r in ("python", "py"):
+                return "python"
+            return r
+
+        sample = f"{worker_code}\n{test_code}"
+        # Check TypeScript indicators
+        if re.search(r"\b(interface\s+\w+|type\s+\w+\s*=|:\s*(?:string|number|boolean|any|void)\b|<[A-Z]\w*>)", sample):
+            return "typescript"
+        # Check JavaScript indicators
+        if re.search(r"\b(const\s+\w+|let\s+\w+|function\s+\w+|module\.exports|require\(|console\.log|export\s+(?:default|function|const))\b", sample):
+            return "javascript"
+        return "python"
+
+    @staticmethod
+    def compute_semantic_rubric(source_code: str, runtime: str = "python") -> float:
         """
         Evaluates deliverable code quality on a [0.0, 1.0] scale:
-        - Class and function docstrings present (+0.40)
-        - Type annotations present (+0.30)
-        - Reasonable modularity and formatting (+0.30)
+        - Python: docstrings (+0.40), type annotations (+0.40), base (+0.20)
+        - JS/TS: JSDoc/block comments (+0.40), types/exports (+0.40), base (+0.20)
         """
-        score = 0.20  # Base score for valid code
+        r = runtime.strip().lower() if runtime else "python"
+        if r in ("javascript", "typescript", "js", "ts", "node"):
+            return ArbitrationArbiter._compute_js_rubric(source_code)
 
         try:
             tree = ast.parse(source_code)
         except Exception:
+            # If it fails to parse as Python, see if it has JS/TS syntax
+            if re.search(r"\b(function|const|let|export|interface)\b", source_code):
+                return ArbitrationArbiter._compute_js_rubric(source_code)
             return 0.0
 
+        score = 0.20  # Base score for valid code
         has_docstring = False
         has_annotations = False
 
@@ -525,6 +574,21 @@ class ArbitrationArbiter:
 
         return min(1.0, round(score, 2))
 
+    @staticmethod
+    def _compute_js_rubric(source_code: str) -> float:
+        score = 0.20
+        # JSDoc or block documentation comments
+        if re.search(r"/\*\*[\s\S]*?\*/|//\s+@param|//\s+@returns", source_code):
+            score += 0.40
+        elif re.search(r"//\s{2,}\S+", source_code):
+            score += 0.20
+
+        # Type annotations, interfaces, or structured modular exports
+        if re.search(r"\b(interface\s+\w+|type\s+\w+\s*=|:\s*(?:string|number|boolean|any|void)\b|<[A-Z]\w*>|module\.exports|export\s+)", source_code):
+            score += 0.40
+
+        return min(1.0, round(score, 2))
+
     def evaluate(
         self,
         agreement_id: str,
@@ -534,19 +598,30 @@ class ArbitrationArbiter:
         semantic_score: Optional[float] = None,
         platform_fee_bps: int = 500,
         paypal_payout_fee_micros: int = 250_000,
+        runtime: Optional[str] = None,
     ) -> ArbitrationReport:
         """
         Full end-to-end arbitration evaluation:
-        1. Runs AST Security Scan.
-        2. Executes sandboxed test runner.
+        1. Runs AST Security Scan (Python or JS/TS).
+        2. Executes sandboxed test runner (pytest or node).
         3. Computes composite score with AST Hard Veto.
         4. Calculates financial settlement split.
         """
+        target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
+        is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")
+
         # 1. AST Security Audit
-        is_safe, violations = self.scanner.scan(worker_code)
+        if is_node:
+            is_safe, violations = self.js_scanner.scan(worker_code)
+            scanned_imports = list(self.js_scanner.scanned_imports)
+            runner_to_use = self.node_runner if not isinstance(self.runner, NodeCodeRunner) else self.runner
+        else:
+            is_safe, violations = self.scanner.scan(worker_code)
+            scanned_imports = list(self.scanner.scanned_imports)
+            runner_to_use = self.runner
         s_ast = 1.0 if is_safe else 0.0
 
-        # 2. Pytest Execution
+        # 2. Test Execution
         # If security scan found malicious code, we do NOT execute untrusted code on host
         if not is_safe:
             passed_tests, total_tests = 0, 1
@@ -564,12 +639,12 @@ class ArbitrationArbiter:
                 )
             ]
         else:
-            passed_tests, total_tests, stdout = self.runner.run_tests(
+            passed_tests, total_tests, stdout = runner_to_use.run_tests(
                 worker_code=worker_code,
                 test_code=buyer_test_code,
             )
             s_pytest = (passed_tests / total_tests) if total_tests > 0 else 0.0
-            parser = getattr(self.runner, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
+            parser = getattr(runner_to_use, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
             test_assertions = parser(stdout)
             if not test_assertions and total_tests > 0:
                 for i in range(passed_tests):
@@ -582,12 +657,14 @@ class ArbitrationArbiter:
         if semantic_score is not None:
             s_semantic = semantic_score
         else:
-            judged = self.judge.judge(worker_code)
-            s_semantic = judged.score
-            rationale = judged.rationale
+            if is_node and isinstance(self.judge, HeuristicJudge):
+                s_semantic = self.compute_semantic_rubric(worker_code, runtime=target_runtime)
+            else:
+                judged = self.judge.judge(worker_code)
+                s_semantic = judged.score
+                rationale = judged.rationale
         s_semantic = max(0.0, min(1.0, s_semantic))
         if rationale:
-            # ArbitrationReport has no rationale field; append to stdout (non-breaking).
             stdout = f"{stdout}\n[semantic judge rationale] {rationale}"
 
         # 4. Composite Score with AST Hard Veto
@@ -625,7 +702,7 @@ class ArbitrationArbiter:
             stdout=stdout,
             settlement=settlement_result,
             test_assertions=test_assertions,
-            scanned_imports=list(self.scanner.scanned_imports),
+            scanned_imports=scanned_imports,
         )
 
     def arbitrate(
@@ -638,6 +715,7 @@ class ArbitrationArbiter:
         platform_fee_bps: int = 500,
         paypal_payout_fee_micros: int = 250_000,
         consensus_arbiter: Optional[Any] = None,
+        runtime: Optional[str] = None,
     ) -> ArbitrationReport:
         """
         Adversarial Dual-Model Consensus Arbitration Engine (Day 5 & Day 6):
@@ -645,8 +723,18 @@ class ArbitrationArbiter:
         Strictly enforces Hard Veto Rule:
         If S_AST == 0.0, S is locked to 0.00 immediately, bypassing test execution and LLM costs.
         """
+        target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
+        is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")
+
         # 1. AST Security Audit
-        is_safe, violations = self.scanner.scan(worker_code)
+        if is_node:
+            is_safe, violations = self.js_scanner.scan(worker_code)
+            scanned_imports = list(self.js_scanner.scanned_imports)
+            runner_to_use = self.node_runner if not isinstance(self.runner, NodeCodeRunner) else self.runner
+        else:
+            is_safe, violations = self.scanner.scan(worker_code)
+            scanned_imports = list(self.scanner.scanned_imports)
+            runner_to_use = self.runner
         s_ast = 1.0 if is_safe else 0.0
 
         if not is_safe:
@@ -669,13 +757,13 @@ class ArbitrationArbiter:
                 )
             ]
         else:
-            # 2. Pytest Execution
-            passed_tests, total_tests, stdout = self.runner.run_tests(
+            # 2. Test Execution
+            passed_tests, total_tests, stdout = runner_to_use.run_tests(
                 worker_code=worker_code,
                 test_code=buyer_test_code,
             )
             s_pytest = (passed_tests / total_tests) if total_tests > 0 else 0.0
-            parser = getattr(self.runner, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
+            parser = getattr(runner_to_use, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
             test_assertions = parser(stdout)
             if not test_assertions and total_tests > 0:
                 for i in range(passed_tests):
@@ -688,10 +776,13 @@ class ArbitrationArbiter:
             if semantic_score is not None:
                 s_semantic = max(0.0, min(1.0, float(semantic_score)))
             else:
-                judged = arb.judge(worker_code)
-                s_semantic = max(0.0, min(1.0, float(judged.score)))
-                if judged.rationale:
-                    stdout = f"{stdout}\n[consensus arbiter rationale] {judged.rationale}"
+                if is_node and isinstance(arb, HeuristicJudge):
+                    s_semantic = self.compute_semantic_rubric(worker_code, runtime=target_runtime)
+                else:
+                    judged = arb.judge(worker_code)
+                    s_semantic = max(0.0, min(1.0, float(judged.score)))
+                    if judged.rationale:
+                        stdout = f"{stdout}\n[consensus arbiter rationale] {judged.rationale}"
 
             # 4. Composite Score: S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
             raw_score = s_ast * ((0.60 * s_pytest) + (0.40 * s_semantic))
@@ -721,7 +812,7 @@ class ArbitrationArbiter:
             stdout=stdout,
             settlement=settlement_result,
             test_assertions=test_assertions,
-            scanned_imports=list(self.scanner.scanned_imports),
+            scanned_imports=scanned_imports,
         )
 
 

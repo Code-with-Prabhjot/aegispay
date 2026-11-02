@@ -67,15 +67,16 @@ class EscrowOrchestrator:
         self,
         repo: Repository,
         ledger: DoubleEntryLedgerEngine,
-        engine: Any,
-        settings: Settings,
+        engine: Any = None,
+        settings: Settings = None,
         arbiter: Optional[ArbitrationArbiter] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         broadcaster: Optional[Any] = None,
+        paypal: Optional[Any] = None,
     ):
         self.repo = repo
         self.ledger = ledger
-        self.engine = engine
+        self.engine = engine or paypal
         self.settings = settings
         self.arbiter = arbiter or ArbitrationArbiter(
             runner=get_execution_runner(settings), judge=get_semantic_judge(settings)
@@ -214,6 +215,7 @@ class EscrowOrchestrator:
         source_code: str,
         test_suite: str,
         semantic_score: Optional[float] = None,
+        runtime: Optional[str] = None,
     ) -> fsm.ContractRecord:
         """Worker delivery -> sandbox -> arbitration -> capture/void -> payout dispatch."""
         async with self._lock:
@@ -224,7 +226,7 @@ class EscrowOrchestrator:
                 self._release_expired_hold(c)
                 raise
             self.repo.save_contract(c)
-            self._move(c, FsmState.ARBITRATION_AUDITING, "Running pytest + AST scan + rubric")
+            self._move(c, FsmState.ARBITRATION_AUDITING, "Running test suite + AST scan + rubric")
             self.repo.save_contract(c)
 
             report: ArbitrationReport = await asyncio.to_thread(
@@ -236,6 +238,7 @@ class EscrowOrchestrator:
                 semantic_score=semantic_score,
                 platform_fee_bps=self.settings.PROTOCOL_FEE_BPS,
                 paypal_payout_fee_micros=self.settings.PAYPAL_PAYOUT_FEE_MICROS,
+                runtime=runtime,
             )
             c.report = report.model_dump(mode="json")
             c.verification_score = report.composite_score
@@ -512,3 +515,7 @@ class EscrowOrchestrator:
             await self.handle_webhook(self.build_payout_event(c.paypal_payout_batch_id, payout_outcome))
             c = self.get(c.agreement_id)
         return c
+
+
+Orchestrator = EscrowOrchestrator
+
