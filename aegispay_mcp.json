@@ -36,6 +36,10 @@
             "type": "integer",
             "default": 3600,
             "description": "Execution TTL in seconds before contract authorization expires"
+          },
+          "vault_id": {
+            "type": "string",
+            "description": "Optional PayPal Vault payment method token for autonomous pre-authorized billing"
           }
         },
         "required": [

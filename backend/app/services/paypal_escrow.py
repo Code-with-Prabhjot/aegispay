@@ -184,6 +184,7 @@ class PayPalEscrowEngine:
         amount_micros: int,
         description: str,
         enable_vault: bool = True,
+        vault_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Creates a PayPal v2 Order with intent='AUTHORIZE'.
@@ -215,7 +216,15 @@ class PayPalEscrowEngine:
                 "user_action": "CONTINUE",
             },
         }
-        if enable_vault:
+        if vault_id:
+            payload["payment_source"] = {
+                "token": {
+                    "id": vault_id,
+                    "type": "PAYMENT_METHOD_TOKEN",
+                },
+                "vault_id": vault_id,
+            }
+        elif enable_vault:
             payload["payment_source"] = {
                 "paypal": {
                     "attributes": {

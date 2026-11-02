@@ -23,6 +23,7 @@ from backend.app.schemas import (
     LedgerJournalLeg,
     SlaContractCreate,
     TestAssertionItem,
+    VaultVelocityModel,
 )
 from backend.app.services import fsm
 from backend.app.services.broadcaster import (
@@ -38,6 +39,11 @@ from backend.app.services.orchestrator import (
 )
 from backend.app.services.paypal_mock import get_paypal_engine
 from backend.app.services.scenario_presets import SCENARIOS
+from backend.app.services.vault_service import (
+    VaultCircuitBreakerError,
+    register_vault,
+    reset_vault_circuit_breaker,
+)
 
 
 class SubmitWork(BaseModel):
@@ -236,6 +242,35 @@ def create_app(
     @api.get("/contracts/{agreement_id}/detail", response_model=AgreementDetailResponse)
     async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
         return await get_agreement_detail(agreement_id)
+
+    @api.post("/vaults", status_code=201)
+    async def create_or_update_vault(model: VaultVelocityModel) -> Dict[str, Any]:
+        record = register_vault(
+            vault_id=model.vault_id,
+            buyer_did=model.buyer_did,
+            max_amount_per_task_micros=model.max_amount_per_task_micros,
+            max_daily_budget_micros=model.max_daily_budget_micros,
+            current_daily_spent_micros=model.current_daily_spent_micros,
+            window_reset_timestamp=model.window_reset_timestamp,
+            consecutive_void_count=model.consecutive_void_count,
+            is_frozen=model.is_frozen,
+            repo=repository,
+        )
+        return record.to_dict()
+
+    @api.get("/vaults/{vault_id}")
+    async def get_vault_status(vault_id: str) -> Dict[str, Any]:
+        vault = repository.get_vault(vault_id)
+        if vault is None:
+            raise HTTPException(404, f"Vault '{vault_id}' not found")
+        return vault.to_dict()
+
+    @api.post("/vaults/{vault_id}/reset")
+    async def reset_circuit_breaker_endpoint(vault_id: str) -> Dict[str, Any]:
+        vault = reset_vault_circuit_breaker(vault_id, repo=repository)
+        if vault is None:
+            raise HTTPException(404, f"Vault '{vault_id}' not found")
+        return {"status": "unfrozen", "vault": vault.to_dict()}
 
     @api.get("/mcp/manifest")
     async def get_mcp_manifest() -> Dict[str, Any]:

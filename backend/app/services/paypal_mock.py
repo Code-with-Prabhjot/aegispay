@@ -44,12 +44,13 @@ class MockPayPalEscrowEngine:
         amount_micros: int,
         description: str,
         enable_vault: bool = True,
+        vault_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Returns an order shaped like PayPal's response *after* buyer approval + authorize."""
         key = derive_idempotency_key(agreement_id, "create_auth_order")
         value = micros_to_usd_str(amount_micros)
         amount = {"currency_code": "USD", "value": value}
-        return {
+        order = {
             "id": _fake_id("MOCKORDER", key),
             "intent": "AUTHORIZE",
             "status": "COMPLETED",
@@ -72,6 +73,13 @@ class MockPayPalEscrowEngine:
             ],
             "links": [],
         }
+        if vault_id:
+            order["vault_id"] = vault_id
+            order["payment_source"] = {
+                "token": {"id": vault_id, "type": "PAYMENT_METHOD_TOKEN"},
+                "vault_id": vault_id,
+            }
+        return order
 
     async def capture_authorization(
         self,

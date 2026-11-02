@@ -213,6 +213,10 @@ class SlaContractCreate(BaseModel):
         le=259200,  # Max 72 hours (PayPal honor window)
         description="Execution TTL in seconds before contract expires (default 3600s / 1 hr)",
     )
+    vault_id: Optional[str] = Field(
+        default=None,
+        description="Optional PayPal Vault payment token for pre-authorized autonomous task billing",
+    )
 
     @field_validator("worker_paypal_email")
     @classmethod
@@ -241,6 +245,7 @@ class SlaContractResponse(BaseModel):
     created_at: datetime = Field(..., description="Contract creation timestamp")
     updated_at: datetime = Field(..., description="Last state update timestamp")
     budget_usd: Optional[str] = Field(default=None, description="Budget in USD string format")
+    vault_id: Optional[str] = Field(default=None, description="Optional PayPal Vault payment token ID")
 
     @model_validator(mode="after")
     def set_budget_usd(self) -> "SlaContractResponse":
@@ -317,4 +322,16 @@ class AgreementDetailResponse(SlaContractResponse):
         default=None,
         description="Raw arbitration evaluation report payload"
     )
+
+
+class VaultVelocityModel(BaseModel):
+    vault_id: str = Field(..., description="PayPal Vault payment token / setup token ID")
+    buyer_did: str = Field(..., description="Ed25519 DID of the buyer agent")
+    max_amount_per_task_micros: int = Field(default=25_000_000, description="Max allowed per task in micros")
+    max_daily_budget_micros: int = Field(default=100_000_000, description="Max allowed daily budget in micros")
+    current_daily_spent_micros: int = Field(default=0, description="Running sum of captured micros in 24h rolling window")
+    window_reset_timestamp: int = Field(default=0, description="Epoch timestamp when 24h budget window resets")
+    consecutive_void_count: int = Field(default=0, description="Consecutive AST voids count")
+    is_frozen: int = Field(default=0, description="0 = active, 1 = frozen by circuit breaker")
+
 

@@ -23,6 +23,11 @@ from backend.app.services.ledger_service import DoubleEntryLedgerEngine
 from backend.app.services.llm_judge import get_semantic_judge
 from backend.app.services.paypal_escrow import usd_amount_to_micros
 from backend.app.services.scenario_presets import PresetScenario, get_scenario
+from backend.app.services.vault_service import (
+    VaultCircuitBreakerError,
+    check_vault_allowance,
+    record_vault_settlement,
+)
 
 ESCROW = LedgerAccount.PAYPAL_ESCROW_HOLD.value
 BUYER = LedgerAccount.BUYER_VAULT.value
@@ -108,13 +113,27 @@ class EscrowOrchestrator:
         return rec
 
     # ------------------------------------------------------------------- create
-    async def create_contract(self, payload: SlaContractCreate) -> fsm.ContractRecord:
+    async def create_contract(
+        self, payload: SlaContractCreate, vault_id: Optional[str] = None
+    ) -> fsm.ContractRecord:
         """Draft the contract, then authorize the PayPal hold -> PAYPAL_AUTH_LOCKED."""
         async with self._lock:
             now = self.clock()
             agreement_id = payload.agreement_id or f"agr_{uuid.uuid4().hex[:12]}"
+            effective_vault_id = vault_id or getattr(payload, "vault_id", None)
             if self.repo.get_contract(agreement_id):
                 raise fsm.FsmError(f"Agreement '{agreement_id}' already exists")
+
+            if effective_vault_id:
+                allowed, reason = check_vault_allowance(
+                    effective_vault_id,
+                    payload.budget_micros,
+                    repo=self.repo,
+                    now_epoch=int(now.timestamp()),
+                )
+                if not allowed:
+                    raise VaultCircuitBreakerError(reason, vault_id=effective_vault_id)
+
             c = fsm.ContractRecord(
                 agreement_id=agreement_id,
                 buyer_agent_id=payload.buyer_agent_id,
@@ -125,6 +144,7 @@ class EscrowOrchestrator:
                 timeout_seconds=payload.timeout_seconds,
                 created_at=now,
                 updated_at=now,
+                vault_id=effective_vault_id,
             )
             c.transitions.append(
                 fsm.TransitionRecord(agreement_id, None, FsmState.AGREEMENT_DRAFTED,
@@ -146,7 +166,10 @@ class EscrowOrchestrator:
 
             try:
                 order = await self.engine.create_escrow_authorization_order(
-                    agreement_id, payload.budget_micros, payload.task_description
+                    agreement_id,
+                    payload.budget_micros,
+                    payload.task_description,
+                    vault_id=effective_vault_id,
                 )
             except Exception as exc:  # network / PayPal error: contract stays DRAFTED
                 raise UpstreamError(f"PayPal authorization failed: {exc}") from exc
@@ -251,6 +274,14 @@ class EscrowOrchestrator:
         self._move(c, FsmState.ESCROW_VOIDED_REFUNDED, "Authorization voided; hold released to buyer")
         with self.repo.db.transaction():
             self.ledger.record_settlement(c.agreement_id, report.settlement)
+            if getattr(c, "vault_id", None):
+                record_vault_settlement(
+                    c.vault_id,
+                    0,
+                    is_void=True,
+                    repo=self.repo,
+                    now_epoch=int(self.clock().timestamp()),
+                )
             self.repo.save_contract(c)
 
     async def _capture_and_payout(self, c: fsm.ContractRecord, report: ArbitrationReport) -> None:
@@ -275,6 +306,14 @@ class EscrowOrchestrator:
         self._move(c, captured, f"Captured {split.capture_usd} USD")
         with self.repo.db.transaction():
             self.ledger.record_settlement(c.agreement_id, split)
+            if getattr(c, "vault_id", None):
+                record_vault_settlement(
+                    c.vault_id,
+                    split.capture_micros,
+                    is_void=False,
+                    repo=self.repo,
+                    now_epoch=int(self.clock().timestamp()),
+                )
             self.repo.save_contract(c)
         await self._dispatch_payout(c, attempt=1)
 

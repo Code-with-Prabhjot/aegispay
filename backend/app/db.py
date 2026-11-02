@@ -11,6 +11,7 @@ import json
 import sqlite3
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence
@@ -44,6 +45,30 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+@dataclass
+class VaultVelocityRecord:
+    vault_id: str
+    buyer_did: str
+    max_amount_per_task_micros: int = 25_000_000
+    max_daily_budget_micros: int = 100_000_000
+    current_daily_spent_micros: int = 0
+    window_reset_timestamp: int = 0
+    consecutive_void_count: int = 0
+    is_frozen: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "vault_id": self.vault_id,
+            "buyer_did": self.buyer_did,
+            "max_amount_per_task_micros": self.max_amount_per_task_micros,
+            "max_daily_budget_micros": self.max_daily_budget_micros,
+            "current_daily_spent_micros": self.current_daily_spent_micros,
+            "window_reset_timestamp": self.window_reset_timestamp,
+            "consecutive_void_count": self.consecutive_void_count,
+            "is_frozen": self.is_frozen,
+        }
+
+
 class Database:
     """Single shared connection guarded by a re-entrant lock, with nestable transactions."""
 
@@ -61,6 +86,10 @@ class Database:
     def init_schema(self) -> None:
         with self._lock:
             self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            try:
+                self._conn.execute("ALTER TABLE contracts ADD COLUMN vault_id VARCHAR(128)")
+            except sqlite3.OperationalError:
+                pass
 
     def close(self) -> None:
         with self._lock:
@@ -117,8 +146,8 @@ class Repository:
                     worker_paypal_email, budget_micros, task_description, timeout_seconds,
                     fsm_state, paypal_order_id, paypal_authorization_id, paypal_capture_id,
                     paypal_payout_batch_id, verification_score, authorized_at, report_json,
-                    created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, vault_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (agreement_id) DO UPDATE SET
                     fsm_state = excluded.fsm_state,
                     paypal_order_id = excluded.paypal_order_id,
@@ -128,7 +157,8 @@ class Repository:
                     verification_score = excluded.verification_score,
                     authorized_at = excluded.authorized_at,
                     report_json = excluded.report_json,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    vault_id = excluded.vault_id
                 """,
                 (
                     c.agreement_id, c.buyer_agent_id, c.worker_agent_id, c.worker_paypal_email,
@@ -136,7 +166,7 @@ class Repository:
                     c.paypal_order_id, c.paypal_authorization_id, c.paypal_capture_id,
                     c.paypal_payout_batch_id, c.verification_score, _iso(c.authorized_at),
                     json.dumps(c.report) if c.report is not None else None,
-                    _iso(c.created_at), _iso(c.updated_at),
+                    _iso(c.created_at), _iso(c.updated_at), getattr(c, "vault_id", None),
                 ),
             )
             persisted = self.db.query(
@@ -171,6 +201,11 @@ class Repository:
         ]
 
     def _row_to_contract(self, r: Any) -> ContractRecord:
+        vault_id = None
+        try:
+            vault_id = r["vault_id"]
+        except (IndexError, KeyError):
+            pass
         return ContractRecord(
             agreement_id=r["agreement_id"],
             buyer_agent_id=r["buyer_agent_id"],
@@ -190,6 +225,7 @@ class Repository:
             created_at=_dt(r["created_at"]),
             updated_at=_dt(r["updated_at"]),
             transitions=self.list_transitions(r["agreement_id"]),
+            vault_id=vault_id,
         )
 
     def get_contract(self, agreement_id: str) -> Optional[ContractRecord]:
@@ -305,3 +341,69 @@ class Repository:
     def get_webhook_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         rows = self.db.query("SELECT * FROM webhook_events WHERE event_id = ?", (event_id,))
         return dict(rows[0]) if rows else None
+
+    # ------------------------------------------------------ buyer vault velocity
+    def save_vault(self, v: VaultVelocityRecord) -> None:
+        with self.db.transaction():
+            self.db.execute(
+                """
+                INSERT INTO buyer_vault_velocity (
+                    vault_id, buyer_did, max_amount_per_task_micros, max_daily_budget_micros,
+                    current_daily_spent_micros, window_reset_timestamp, consecutive_void_count, is_frozen
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (vault_id) DO UPDATE SET
+                    buyer_did = excluded.buyer_did,
+                    max_amount_per_task_micros = excluded.max_amount_per_task_micros,
+                    max_daily_budget_micros = excluded.max_daily_budget_micros,
+                    current_daily_spent_micros = excluded.current_daily_spent_micros,
+                    window_reset_timestamp = excluded.window_reset_timestamp,
+                    consecutive_void_count = excluded.consecutive_void_count,
+                    is_frozen = excluded.is_frozen
+                """,
+                (
+                    v.vault_id,
+                    v.buyer_did,
+                    v.max_amount_per_task_micros,
+                    v.max_daily_budget_micros,
+                    v.current_daily_spent_micros,
+                    v.window_reset_timestamp,
+                    v.consecutive_void_count,
+                    v.is_frozen,
+                ),
+            )
+
+    def get_vault(self, vault_id: str) -> Optional[VaultVelocityRecord]:
+        rows = self.db.query("SELECT * FROM buyer_vault_velocity WHERE vault_id = ?", (vault_id,))
+        if not rows:
+            return None
+        r = rows[0]
+        return VaultVelocityRecord(
+            vault_id=r["vault_id"],
+            buyer_did=r["buyer_did"],
+            max_amount_per_task_micros=r["max_amount_per_task_micros"],
+            max_daily_budget_micros=r["max_daily_budget_micros"],
+            current_daily_spent_micros=r["current_daily_spent_micros"],
+            window_reset_timestamp=r["window_reset_timestamp"],
+            consecutive_void_count=r["consecutive_void_count"],
+            is_frozen=r["is_frozen"],
+        )
+
+    def list_vaults(self) -> List[VaultVelocityRecord]:
+        rows = self.db.query("SELECT * FROM buyer_vault_velocity ORDER BY vault_id")
+        return [
+            VaultVelocityRecord(
+                vault_id=r["vault_id"],
+                buyer_did=r["buyer_did"],
+                max_amount_per_task_micros=r["max_amount_per_task_micros"],
+                max_daily_budget_micros=r["max_daily_budget_micros"],
+                current_daily_spent_micros=r["current_daily_spent_micros"],
+                window_reset_timestamp=r["window_reset_timestamp"],
+                consecutive_void_count=r["consecutive_void_count"],
+                is_frozen=r["is_frozen"],
+            )
+            for r in rows
+        ]
+
+    def delete_vault(self, vault_id: str) -> None:
+        self.db.execute("DELETE FROM buyer_vault_velocity WHERE vault_id = ?", (vault_id,))

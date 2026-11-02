@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     authorized_at           TIMESTAMPTZ,
     report_json             TEXT,
     created_at              TIMESTAMPTZ NOT NULL,
-    updated_at              TIMESTAMPTZ NOT NULL
+    updated_at              TIMESTAMPTZ NOT NULL,
+    vault_id                VARCHAR(128)
 );
 
 CREATE TABLE IF NOT EXISTS state_transitions (
@@ -69,3 +70,16 @@ CREATE TABLE IF NOT EXISTS webhook_events (
     outcome     VARCHAR(64),
     received_at TIMESTAMPTZ NOT NULL
 );
+
+-- buyer_vault_velocity tracks pre-authorized buyer agent vaults with rolling 24h budget limits and circuit breakers.
+CREATE TABLE IF NOT EXISTS buyer_vault_velocity (
+    vault_id                    VARCHAR(128) PRIMARY KEY,
+    buyer_did                   VARCHAR(128) NOT NULL,
+    max_amount_per_task_micros  BIGINT NOT NULL DEFAULT 25000000,
+    max_daily_budget_micros     BIGINT NOT NULL DEFAULT 100000000,
+    current_daily_spent_micros  BIGINT NOT NULL DEFAULT 0,
+    window_reset_timestamp      BIGINT NOT NULL DEFAULT 0,
+    consecutive_void_count      INTEGER NOT NULL DEFAULT 0,
+    is_frozen                   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_vault_buyer ON buyer_vault_velocity (buyer_did);
