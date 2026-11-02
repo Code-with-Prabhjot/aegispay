@@ -4,6 +4,19 @@ info:
   title: AegisPay
   version: 0.1.0
 paths:
+  /mcp/manifest:
+    get:
+      summary: Get Mcp Manifest Root
+      operationId: get_mcp_manifest_root_mcp_manifest_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Mcp Manifest Root Mcp Manifest Get
   /api/v1/health:
     get:
       summary: Health
@@ -260,6 +273,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mcp/manifest:
+    get:
+      summary: Get Mcp Manifest
+      operationId: get_mcp_manifest_api_v1_mcp_manifest_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Mcp Manifest Api V1 Mcp Manifest Get
+  /api/v1/mcp/execute:
+    post:
+      summary: Execute Mcp Tool
+      operationId: execute_mcp_tool_api_v1_mcp_execute_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpToolCall'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Execute Mcp Tool Api V1 Mcp Execute Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/webhooks/paypal:
     post:
       summary: Paypal Webhook
@@ -500,6 +551,20 @@ components:
       - created_at
       title: LedgerJournalLeg
       description: Double-entry journal leg formatted for master-detail table expansion.
+    McpToolCall:
+      properties:
+        name:
+          type: string
+          title: Name
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+      type: object
+      required:
+      - name
+      - arguments
+      title: McpToolCall
     SlaContractCreate:
       properties:
         agreement_id:

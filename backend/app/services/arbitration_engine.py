@@ -485,10 +485,12 @@ class ArbitrationArbiter:
         scanner: Optional[AstSecurityScanner] = None,
         runner: Optional[Any] = None,
         judge: Optional[SemanticJudge] = None,
+        consensus_arbiter: Optional[Any] = None,
     ) -> None:
         self.scanner = scanner or AstSecurityScanner()
         self.runner = runner or CodeExecutionRunner(timeout_seconds=5.0)
         self.judge: SemanticJudge = judge or HeuristicJudge()
+        self.consensus_arbiter = consensus_arbiter
 
     @staticmethod
     def compute_semantic_rubric(source_code: str) -> float:
@@ -625,3 +627,103 @@ class ArbitrationArbiter:
             test_assertions=test_assertions,
             scanned_imports=list(self.scanner.scanned_imports),
         )
+
+    def arbitrate(
+        self,
+        agreement_id: str,
+        worker_code: str,
+        buyer_test_code: str,
+        budget_micros: int = 15_000_000,
+        semantic_score: Optional[float] = None,
+        platform_fee_bps: int = 500,
+        paypal_payout_fee_micros: int = 250_000,
+        consensus_arbiter: Optional[Any] = None,
+    ) -> ArbitrationReport:
+        """
+        Adversarial Dual-Model Consensus Arbitration Engine (Day 5 & Day 6):
+        Computes composite score: S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
+        Strictly enforces Hard Veto Rule:
+        If S_AST == 0.0, S is locked to 0.00 immediately, bypassing test execution and LLM costs.
+        """
+        # 1. AST Security Audit
+        is_safe, violations = self.scanner.scan(worker_code)
+        s_ast = 1.0 if is_safe else 0.0
+
+        if not is_safe:
+            # Hard Veto: bypass test execution and LLM costs immediately
+            passed_tests, total_tests = 0, 1
+            stdout = (
+                "Code execution skipped: Security Perimeter Violation Detected.\nViolations:\n"
+                + "\n".join(f"- {v}" for v in violations)
+            )
+            s_pytest = 0.0
+            s_semantic = 0.0
+            composite_score = 0.0
+            ast_passed = False
+            test_assertions = [
+                TestAssertionItem(
+                    name="security_perimeter_ast_audit",
+                    status="FAILED",
+                    duration_ms=0.0,
+                    error_message="; ".join(violations),
+                )
+            ]
+        else:
+            # 2. Pytest Execution
+            passed_tests, total_tests, stdout = self.runner.run_tests(
+                worker_code=worker_code,
+                test_code=buyer_test_code,
+            )
+            s_pytest = (passed_tests / total_tests) if total_tests > 0 else 0.0
+            parser = getattr(self.runner, "_parse_test_assertions", None) or CodeExecutionRunner._parse_test_assertions
+            test_assertions = parser(stdout)
+            if not test_assertions and total_tests > 0:
+                for i in range(passed_tests):
+                    test_assertions.append(TestAssertionItem(name=f"test_{i+1:02d}", status="PASSED", duration_ms=12.0))
+                for i in range(total_tests - passed_tests):
+                    test_assertions.append(TestAssertionItem(name=f"test_{passed_tests+i+1:02d}", status="FAILED", duration_ms=12.0, error_message="Assertion failed"))
+
+            # 3. Dual-Model Consensus Semantic Grader
+            arb = consensus_arbiter or getattr(self, "consensus_arbiter", None) or self.judge
+            if semantic_score is not None:
+                s_semantic = max(0.0, min(1.0, float(semantic_score)))
+            else:
+                judged = arb.judge(worker_code)
+                s_semantic = max(0.0, min(1.0, float(judged.score)))
+                if judged.rationale:
+                    stdout = f"{stdout}\n[consensus arbiter rationale] {judged.rationale}"
+
+            # 4. Composite Score: S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
+            raw_score = s_ast * ((0.60 * s_pytest) + (0.40 * s_semantic))
+            composite_score = round(max(0.0, min(1.0, raw_score)), 4)
+            ast_passed = True
+
+        # 5. Financial Settlement Calculation
+        settlement_dict = compute_settlement_split_micros(
+            agreed_budget_micros=budget_micros,
+            composite_score=composite_score,
+            ast_security_passed=ast_passed,
+            platform_fee_bps=platform_fee_bps,
+            paypal_payout_fee_micros=paypal_payout_fee_micros,
+        )
+        settlement_result = SettlementSplitResult(**settlement_dict)
+
+        return ArbitrationReport(
+            agreement_id=agreement_id,
+            s_pytest=round(s_pytest, 4),
+            s_ast=s_ast,
+            s_semantic=round(s_semantic, 4),
+            composite_score=composite_score,
+            passed_tests=passed_tests,
+            total_tests=total_tests,
+            ast_safe=is_safe,
+            ast_violations=violations,
+            stdout=stdout,
+            settlement=settlement_result,
+            test_assertions=test_assertions,
+            scanned_imports=list(self.scanner.scanned_imports),
+        )
+
+
+ArbitrationEngine = ArbitrationArbiter
+

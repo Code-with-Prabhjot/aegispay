@@ -81,11 +81,13 @@ class Settings(BaseSettings):
     )
     LLM_JUDGE_ENABLED: bool = Field(
         default=False,
-        description="Use Claude as semantic judge (needs ANTHROPIC_API_KEY)",
+        description="Use LLM semantic judge (Claude / Gemini)",
     )
     LLM_JUDGE_MODEL: str = Field(default="claude-haiku-5-5", description="Claude model id for the judge")
+    GEMINI_JUDGE_MODEL: str = Field(default="gemini-1.5-flash", description="Gemini model id for the judge")
     LLM_JUDGE_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, description="Judge call timeout")
     ANTHROPIC_API_KEY: str = Field(default="", description="Anthropic API key (optional)")
+    GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key (optional)")
 
     model_config = SettingsConfigDict(
         env_file=".env",

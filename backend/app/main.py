@@ -6,6 +6,8 @@ All routes live under /api/v1.
 
 from contextlib import asynccontextmanager
 from decimal import Decimal
+import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -234,6 +236,48 @@ def create_app(
     @api.get("/contracts/{agreement_id}/detail", response_model=AgreementDetailResponse)
     async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
         return await get_agreement_detail(agreement_id)
+
+    @api.get("/mcp/manifest")
+    async def get_mcp_manifest() -> Dict[str, Any]:
+        manifest_path = Path(__file__).resolve().parent.parent.parent / "aegispay_mcp.json"
+        if manifest_path.exists():
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        raise HTTPException(500, "MCP manifest file not found")
+
+    @app.get("/mcp/manifest")
+    async def get_mcp_manifest_root() -> Dict[str, Any]:
+        return await get_mcp_manifest()
+
+    class McpToolCall(BaseModel):
+        name: str
+        arguments: Dict[str, Any]
+
+    @api.post("/mcp/execute")
+    async def execute_mcp_tool(call: McpToolCall) -> Dict[str, Any]:
+        try:
+            if call.name == "aegispay_propose_agreement":
+                payload = SlaContractCreate(**call.arguments)
+                contract = await orch.create_contract(payload)
+                return {"result": contract_detail(contract)}
+
+            elif call.name == "aegispay_submit_deliverable":
+                contract = await orch.submit_work(
+                    agreement_id=call.arguments["agreement_id"],
+                    source_code=call.arguments["source_code"],
+                    test_suite=call.arguments["test_suite"],
+                )
+                return {"result": contract_detail(contract)}
+
+            elif call.name == "aegispay_check_escrow_status":
+                agreement_id = call.arguments["agreement_id"]
+                contract = orch.get(agreement_id)
+                detail = build_agreement_detail_response(contract, repository, ledger)
+                return {"result": detail.model_dump(mode="json")}
+
+            else:
+                raise HTTPException(404, f"Unknown MCP tool '{call.name}'")
+        except Exception as exc:
+            raise _handle(exc)
 
     async def _ws_ledger_handler(websocket: WebSocket) -> None:
         await broadcaster_mgr.connect(websocket)

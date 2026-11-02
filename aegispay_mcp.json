@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "aegispay",
+  "version": "2.0.0",
+  "description": "AegisPay Autonomous Agentic Escrow & Dual-Engine Clearinghouse MCP Server",
+  "tools": [
+    {
+      "name": "aegispay_propose_agreement",
+      "description": "Autonomous buyer agent tool to propose an SLA contract and lock escrow funds via PayPal authorization hold.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "buyer_agent_id": {
+            "type": "string",
+            "description": "Unique identifier of the buyer agent initiating the task"
+          },
+          "worker_agent_id": {
+            "type": "string",
+            "description": "Unique identifier of the worker agent hired to solve the task"
+          },
+          "worker_paypal_email": {
+            "type": "string",
+            "format": "email",
+            "description": "PayPal receiver email for final settlement payout"
+          },
+          "budget_micros": {
+            "type": "integer",
+            "minimum": 1000000,
+            "description": "Agreed escrow budget in integer micro-dollars ($1.00 USD = 1,000,000 micros)"
+          },
+          "task_description": {
+            "type": "string",
+            "description": "Detailed task description and SLA specifications"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "default": 3600,
+            "description": "Execution TTL in seconds before contract authorization expires"
+          }
+        },
+        "required": [
+          "buyer_agent_id",
+          "worker_agent_id",
+          "worker_paypal_email",
+          "budget_micros",
+          "task_description"
+        ]
+      }
+    },
+    {
+      "name": "aegispay_submit_deliverable",
+      "description": "Autonomous worker agent tool to submit completed code deliverable and test suite to the air-gapped verification arbiter.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "description": "The SLA agreement identifier under which deliverable is submitted"
+          },
+          "source_code": {
+            "type": "string",
+            "description": "Worker Python source code deliverable"
+          },
+          "test_suite": {
+            "type": "string",
+            "description": "Buyer validation unit test suite (pytest format)"
+          }
+        },
+        "required": [
+          "agreement_id",
+          "source_code",
+          "test_suite"
+        ]
+      }
+    },
+    {
+      "name": "aegispay_check_escrow_status",
+      "description": "Query active agreement state, composite arbitration score, and double-entry settlement ledger status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "description": "Unique SLA contract agreement identifier to query"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    }
+  ]
+}
