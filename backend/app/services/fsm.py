@@ -119,6 +119,10 @@ class ContractRecord:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     transitions: List[TransitionRecord] = field(default_factory=list)
     vault_id: Optional[str] = None
+    hash_chain_head: Optional[str] = None
+    merkle_root: Optional[str] = None
+    buyer_signature: Optional[str] = None
+    worker_signature: Optional[str] = None
 
     def to_response(self) -> SlaContractResponse:
         return SlaContractResponse(
@@ -138,6 +142,10 @@ class ContractRecord:
             created_at=self.created_at,
             updated_at=self.updated_at,
             vault_id=self.vault_id,
+            hash_chain_head=self.hash_chain_head,
+            merkle_root=self.merkle_root,
+            buyer_signature=self.buyer_signature,
+            worker_signature=self.worker_signature,
         )
 
 

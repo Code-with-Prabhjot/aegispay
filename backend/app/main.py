@@ -18,20 +18,36 @@ from backend.app.api.routes_webhooks import router as webhooks_router
 from backend.app.config import Settings, settings as default_settings
 from backend.app.db import Repository
 from backend.app.schemas import (
+    A2ANegotiateRequest,
     AgreementDetailResponse,
     AstSecurityAudit,
     LedgerJournalLeg,
+    MerkleProofResponse,
     SlaContractCreate,
     TestAssertionItem,
     VaultVelocityModel,
+    VerifyIdentityRequest,
 )
 from backend.app.services import fsm
+from backend.app.services.a2a import (
+    Ed25519Agent,
+    create_sla_offer,
+    negotiate_sla_parameters,
+    pubkey_to_did,
+    verify_agent_signature,
+)
 from backend.app.services.broadcaster import (
     LedgerConnectionManager,
     format_event_envelope,
     ledger_broadcaster,
 )
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
+from backend.app.services.merkle_audit import (
+    MerkleAuditTree,
+    compile_7leaf_bundle,
+    compute_genesis_hash,
+    verify_merkle_proof,
+)
 from backend.app.services.orchestrator import (
     EscrowOrchestrator,
     NotFoundError,
@@ -104,6 +120,27 @@ def build_agreement_detail_response(
             )
         )
 
+    # 4. Cryptographic Hash Chain & 7-Leaf Merkle Tree Audit Bundle (Module 4)
+    bundle = compile_7leaf_bundle(c, repo=repo, ledger=ledger)
+    merkle_root = c.merkle_root or bundle.get("merkle_root")
+    hash_chain_head = c.hash_chain_head
+    if not hash_chain_head:
+        chain = repo.get_hash_chain(c.agreement_id)
+        if chain:
+            hash_chain_head = chain[-1]["current_hash"]
+        else:
+            hash_chain_head = compute_genesis_hash(c.agreement_id)
+
+    clean_bundle = {
+        "merkle_root": merkle_root,
+        "leaf_hashes": bundle.get("leaf_hashes", []),
+        "leaf_names": bundle.get("leaf_names", []),
+        "leaves": bundle.get("leaves", []),
+    }
+
+    base["merkle_root"] = merkle_root
+    base["hash_chain_head"] = hash_chain_head
+
     return AgreementDetailResponse(
         **base,
         test_assertions=assertions,
@@ -111,6 +148,7 @@ def build_agreement_detail_response(
         ledger_journal=journal_legs,
         transitions=[t.to_dict() for t in c.transitions],
         arbitration_report=c.report,
+        audit_bundle=clean_bundle,
     )
 
 
@@ -243,6 +281,93 @@ def create_app(
     @api.get("/contracts/{agreement_id}/detail", response_model=AgreementDetailResponse)
     async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
         return await get_agreement_detail(agreement_id)
+
+    @api.get("/contracts/{agreement_id}/merkle-proof/{leaf_index}", response_model=MerkleProofResponse)
+    async def get_contract_merkle_proof(agreement_id: str, leaf_index: int) -> MerkleProofResponse:
+        if not (0 <= leaf_index <= 6):
+            raise HTTPException(400, "leaf_index must be an integer between 0 and 6 inclusive")
+        try:
+            c = orch.get(agreement_id)
+        except NotFoundError as exc:
+            raise _handle(exc)
+
+        bundle = compile_7leaf_bundle(c, repo=repository, ledger=ledger)
+        tree: MerkleAuditTree = bundle["tree"]
+        proof = tree.get_proof(leaf_index)
+        leaf_data = bundle["leaves"][leaf_index]
+        leaf_hash = bundle["leaf_hashes"][leaf_index]
+        leaf_name = bundle["leaf_names"][leaf_index]
+        verified = verify_merkle_proof(leaf_index, leaf_data, proof, tree.root_hash)
+
+        return MerkleProofResponse(
+            agreement_id=agreement_id,
+            leaf_index=leaf_index,
+            leaf_name=leaf_name,
+            leaf_data=leaf_data,
+            leaf_hash=leaf_hash,
+            proof_hashes=proof,
+            merkle_root=tree.root_hash,
+            verified=verified,
+        )
+
+    @api.get("/agreements/{agreement_id}/merkle-proof/{leaf_index}", response_model=MerkleProofResponse)
+    async def get_agreement_merkle_proof(agreement_id: str, leaf_index: int) -> MerkleProofResponse:
+        return await get_contract_merkle_proof(agreement_id, leaf_index)
+
+    @api.post("/a2a/negotiate")
+    async def a2a_negotiate(req: A2ANegotiateRequest) -> Dict[str, Any]:
+        result = negotiate_sla_parameters(
+            buyer_pref=req.buyer_pref,
+            worker_pref=req.worker_pref,
+            alpha=req.alpha,
+            beta=req.beta,
+        )
+        offer = None
+        if req.auto_sign or req.buyer_agent_id:
+            buyer_agent = Ed25519Agent.generate(agent_id=req.buyer_agent_id)
+            worker_id = req.worker_agent_id or "did:key:worker_solver_candidate"
+            offer = create_sla_offer(
+                buyer=buyer_agent,
+                worker_agent_id=worker_id,
+                task_description=req.task_description or "Autonomous Agent Deliverable",
+                budget_micros=result["agreed_budget_micros"],
+                timeout_seconds=result["max_execution_seconds"],
+                runtime_language=req.runtime_language or "python",
+            )
+        return {
+            "parameters": result,
+            "offer": offer,
+            "agreed_budget_micros": result["agreed_budget_micros"],
+            "max_execution_seconds": result["max_execution_seconds"],
+            "agreed_timeout_seconds": result["agreed_timeout_seconds"],
+            "buyer_utility": result["buyer_utility"],
+            "worker_utility": result["worker_utility"],
+            "nash_product": result["nash_product"],
+            "status": "AGREEMENT_REACHED",
+        }
+
+    @api.post("/a2a/verify-identity")
+    async def a2a_verify_identity(req: VerifyIdentityRequest) -> Dict[str, Any]:
+        is_valid = verify_agent_signature(
+            public_key=req.public_key_hex,
+            message=req.challenge,
+            signature_hex=req.signature_hex,
+        )
+        agent_id = req.agent_id
+        if not agent_id:
+            if req.public_key_hex.startswith("did:key:"):
+                agent_id = req.public_key_hex
+            else:
+                try:
+                    agent_id = pubkey_to_did(bytes.fromhex(req.public_key_hex.strip()))
+                except Exception:
+                    agent_id = req.public_key_hex
+        return {
+            "valid": is_valid,
+            "verified": is_valid,
+            "agent_id": agent_id,
+            "public_key_hex": req.public_key_hex,
+        }
 
     @api.post("/vaults", status_code=201)
     async def create_or_update_vault(model: VaultVelocityModel) -> Dict[str, Any]:

@@ -273,6 +273,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{agreement_id}/merkle-proof/{leaf_index}:
+    get:
+      summary: Get Contract Merkle Proof
+      operationId: get_contract_merkle_proof_api_v1_contracts__agreement_id__merkle_proof__leaf_index__get
+      parameters:
+      - name: agreement_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agreement Id
+      - name: leaf_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Leaf Index
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerkleProofResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agreements/{agreement_id}/merkle-proof/{leaf_index}:
+    get:
+      summary: Get Agreement Merkle Proof
+      operationId: get_agreement_merkle_proof_api_v1_agreements__agreement_id__merkle_proof__leaf_index__get
+      parameters:
+      - name: agreement_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agreement Id
+      - name: leaf_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Leaf Index
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerkleProofResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/a2a/negotiate:
+    post:
+      summary: A2A Negotiate
+      operationId: a2a_negotiate_api_v1_a2a_negotiate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A2ANegotiateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response A2A Negotiate Api V1 A2A Negotiate Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/a2a/verify-identity:
+    post:
+      summary: A2A Verify Identity
+      operationId: a2a_verify_identity_api_v1_a2a_verify_identity_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyIdentityRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response A2A Verify Identity Api V1 A2A Verify Identity Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/vaults:
     post:
       summary: Create Or Update Vault
@@ -404,6 +514,70 @@ paths:
                 title: Response Paypal Webhook Api V1 Webhooks Paypal Post
 components:
   schemas:
+    A2ANegotiateRequest:
+      properties:
+        buyer_pref:
+          additionalProperties: true
+          type: object
+          title: Buyer Pref
+          description: Buyer preferences (max_budget_micros, max_timeout_seconds)
+        worker_pref:
+          additionalProperties: true
+          type: object
+          title: Worker Pref
+          description: Worker preferences (min_budget_micros, min_timeout_seconds)
+        alpha:
+          type: number
+          maximum: 1.0
+          minimum: 0.0
+          title: Alpha
+          description: Buyer price sensitivity weight
+          default: 0.5
+        beta:
+          type: number
+          maximum: 1.0
+          minimum: 0.0
+          title: Beta
+          description: Worker price sensitivity weight
+          default: 0.5
+        task_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Description
+          description: Task description
+          default: Autonomous Agent Deliverable
+        runtime_language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Language
+          description: Target runtime
+          default: python
+        buyer_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Agent Id
+          description: Buyer DID or agent ID
+        worker_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Agent Id
+          description: Worker DID or agent ID
+        auto_sign:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Auto Sign
+          description: Whether to automatically sign generated offer
+          default: false
+      type: object
+      required:
+      - buyer_pref
+      - worker_pref
+      title: A2ANegotiateRequest
     AgreementDetailResponse:
       properties:
         agreement_id:
@@ -489,6 +663,30 @@ components:
           - type: 'null'
           title: Vault Id
           description: Optional PayPal Vault payment token ID
+        hash_chain_head:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hash Chain Head
+          description: SHA-256 hash head of the audit trail
+        merkle_root:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Merkle Root
+          description: 7-leaf Merkle root hash upon settlement
+        buyer_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Signature
+          description: Buyer Ed25519 signature
+        worker_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Signature
+          description: Worker Ed25519 signature
         test_assertions:
           items:
             $ref: '#/components/schemas/TestAssertionItem'
@@ -518,6 +716,13 @@ components:
           - type: 'null'
           title: Arbitration Report
           description: Raw arbitration evaluation report payload
+        audit_bundle:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Audit Bundle
+          description: 7-leaf Merkle verification bundle
       type: object
       required:
       - agreement_id
@@ -649,6 +854,44 @@ components:
       - name
       - arguments
       title: McpToolCall
+    MerkleProofResponse:
+      properties:
+        agreement_id:
+          type: string
+          title: Agreement Id
+        leaf_index:
+          type: integer
+          title: Leaf Index
+        leaf_name:
+          type: string
+          title: Leaf Name
+        leaf_data:
+          title: Leaf Data
+        leaf_hash:
+          type: string
+          title: Leaf Hash
+        proof_hashes:
+          items:
+            type: string
+          type: array
+          title: Proof Hashes
+        merkle_root:
+          type: string
+          title: Merkle Root
+        verified:
+          type: boolean
+          title: Verified
+      type: object
+      required:
+      - agreement_id
+      - leaf_index
+      - leaf_name
+      - leaf_data
+      - leaf_hash
+      - proof_hashes
+      - merkle_root
+      - verified
+      title: MerkleProofResponse
     SlaContractCreate:
       properties:
         agreement_id:
@@ -702,6 +945,30 @@ components:
           title: Vault Id
           description: Optional PayPal Vault payment token for pre-authorized autonomous
             task billing
+        buyer_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Signature
+          description: Optional Ed25519 signature from buyer agent
+        worker_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Signature
+          description: Optional Ed25519 signature from worker agent
+        buyer_public_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Public Key
+          description: Optional Buyer Ed25519 public key hex or did:key
+        worker_public_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Public Key
+          description: Optional Worker Ed25519 public key hex or did:key
       type: object
       required:
       - buyer_agent_id
@@ -833,3 +1100,28 @@ components:
       - vault_id
       - buyer_did
       title: VaultVelocityModel
+    VerifyIdentityRequest:
+      properties:
+        public_key_hex:
+          type: string
+          title: Public Key Hex
+          description: Ed25519 public key hex string or did:key format
+        challenge:
+          title: Challenge
+          description: Challenge payload (string or dict) that was signed
+        signature_hex:
+          type: string
+          title: Signature Hex
+          description: Ed25519 signature hex string
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+          description: Optional DID or agent ID
+      type: object
+      required:
+      - public_key_hex
+      - challenge
+      - signature_hex
+      title: VerifyIdentityRequest

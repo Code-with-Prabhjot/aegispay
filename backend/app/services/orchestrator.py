@@ -5,6 +5,7 @@ Every state change goes through fsm.transition() and is persisted with its histo
 """
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
@@ -18,9 +19,15 @@ from backend.app.schemas import (
     SlaContractCreate,
 )
 from backend.app.services import fsm
+from backend.app.services.a2a import validate_dual_signatures
 from backend.app.services.arbitration_engine import ArbitrationArbiter, get_execution_runner
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
 from backend.app.services.llm_judge import get_semantic_judge
+from backend.app.services.merkle_audit import (
+    compile_7leaf_bundle,
+    compute_genesis_hash,
+    compute_transition_hash,
+)
 from backend.app.services.paypal_escrow import usd_amount_to_micros
 from backend.app.services.scenario_presets import PresetScenario, get_scenario
 from backend.app.services.vault_service import (
@@ -98,12 +105,40 @@ class EscrowOrchestrator:
 
     def _move(self, c: fsm.ContractRecord, state: FsmState, reason: Optional[str] = None):
         prev_state = c.fsm_state
-        rec = fsm.transition(c, state, reason=reason, now=self.clock())
+        now = self.clock()
+        rec = fsm.transition(c, state, reason=reason, now=now)
+
+        prev_hash = c.hash_chain_head or compute_genesis_hash(c.agreement_id)
+        payload_dict = {
+            "reason": reason,
+            "from_state": prev_state.value if prev_state else None,
+            "to_state": state.value,
+        }
+        new_hash = compute_transition_hash(prev_hash, now.isoformat(), state.value, payload_dict)
+        c.hash_chain_head = new_hash
+        self.repo.append_hash_chain_entry(
+            agreement_id=c.agreement_id,
+            state=state.value,
+            prev_hash=prev_hash,
+            current_hash=new_hash,
+            payload_json=json.dumps(payload_dict),
+            created_at=now,
+        )
+
+        if state in (FsmState.SETTLED_COMPLETE, FsmState.ESCROW_VOIDED_REFUNDED):
+            bundle = compile_7leaf_bundle(c, repo=self.repo, ledger=self.ledger)
+            c.merkle_root = bundle["merkle_root"]
+            self.repo.update_contract_proofs(
+                c.agreement_id, hash_chain_head=c.hash_chain_head, merkle_root=c.merkle_root
+            )
+
+        self.repo.save_contract(c)
+
         if self.broadcaster:
             self.broadcaster.broadcast_sync({
                 "event_type": "FSM_TRANSITION",
                 "agreement_id": c.agreement_id,
-                "timestamp": self.clock().isoformat(),
+                "timestamp": now.isoformat(),
                 "data": {
                     "from_state": prev_state.value if prev_state else None,
                     "to_state": state.value,
@@ -125,6 +160,10 @@ class EscrowOrchestrator:
             if self.repo.get_contract(agreement_id):
                 raise fsm.FsmError(f"Agreement '{agreement_id}' already exists")
 
+            if getattr(payload, "buyer_signature", None) or getattr(payload, "worker_signature", None):
+                if not validate_dual_signatures(payload.model_dump()):
+                    raise fsm.FsmError("A2A signature validation failed: contractor proposal rejected")
+
             if effective_vault_id:
                 allowed, reason = check_vault_allowance(
                     effective_vault_id,
@@ -135,6 +174,7 @@ class EscrowOrchestrator:
                 if not allowed:
                     raise VaultCircuitBreakerError(reason, vault_id=effective_vault_id)
 
+            genesis_hash = compute_genesis_hash(agreement_id)
             c = fsm.ContractRecord(
                 agreement_id=agreement_id,
                 buyer_agent_id=payload.buyer_agent_id,
@@ -146,12 +186,23 @@ class EscrowOrchestrator:
                 created_at=now,
                 updated_at=now,
                 vault_id=effective_vault_id,
+                hash_chain_head=genesis_hash,
+                buyer_signature=getattr(payload, "buyer_signature", None),
+                worker_signature=getattr(payload, "worker_signature", None),
             )
             c.transitions.append(
                 fsm.TransitionRecord(agreement_id, None, FsmState.AGREEMENT_DRAFTED,
                                      "SLA contract drafted", now)
             )
             self.repo.save_contract(c)
+            self.repo.append_hash_chain_entry(
+                agreement_id=agreement_id,
+                state=FsmState.AGREEMENT_DRAFTED.value,
+                prev_hash="0" * 64,
+                current_hash=genesis_hash,
+                payload_json=json.dumps({"task_description": payload.task_description, "budget_micros": payload.budget_micros}),
+                created_at=now,
+            )
             if self.broadcaster:
                 self.broadcaster.broadcast_sync({
                     "event_type": "FSM_TRANSITION",

@@ -19,8 +19,24 @@ CREATE TABLE IF NOT EXISTS contracts (
     report_json             TEXT,
     created_at              TIMESTAMPTZ NOT NULL,
     updated_at              TIMESTAMPTZ NOT NULL,
-    vault_id                VARCHAR(128)
+    vault_id                VARCHAR(128),
+    hash_chain_head         VARCHAR(64),
+    merkle_root             VARCHAR(64),
+    buyer_signature         TEXT,
+    worker_signature        TEXT
 );
+
+CREATE TABLE IF NOT EXISTS audit_hash_chain (
+    seq          BIGINT PRIMARY KEY,
+    agreement_id VARCHAR(128) NOT NULL REFERENCES contracts (agreement_id),
+    state        VARCHAR(40) NOT NULL,
+    prev_hash    VARCHAR(64) NOT NULL,
+    current_hash VARCHAR(64) NOT NULL,
+    payload_json TEXT,
+    created_at   TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_chain_agreement ON audit_hash_chain (agreement_id, seq);
+
 
 CREATE TABLE IF NOT EXISTS state_transitions (
     seq          BIGINT PRIMARY KEY,

@@ -217,6 +217,22 @@ class SlaContractCreate(BaseModel):
         default=None,
         description="Optional PayPal Vault payment token for pre-authorized autonomous task billing",
     )
+    buyer_signature: Optional[str] = Field(
+        default=None,
+        description="Optional Ed25519 signature from buyer agent",
+    )
+    worker_signature: Optional[str] = Field(
+        default=None,
+        description="Optional Ed25519 signature from worker agent",
+    )
+    buyer_public_key: Optional[str] = Field(
+        default=None,
+        description="Optional Buyer Ed25519 public key hex or did:key",
+    )
+    worker_public_key: Optional[str] = Field(
+        default=None,
+        description="Optional Worker Ed25519 public key hex or did:key",
+    )
 
     @field_validator("worker_paypal_email")
     @classmethod
@@ -246,6 +262,10 @@ class SlaContractResponse(BaseModel):
     updated_at: datetime = Field(..., description="Last state update timestamp")
     budget_usd: Optional[str] = Field(default=None, description="Budget in USD string format")
     vault_id: Optional[str] = Field(default=None, description="Optional PayPal Vault payment token ID")
+    hash_chain_head: Optional[str] = Field(default=None, description="SHA-256 hash head of the audit trail")
+    merkle_root: Optional[str] = Field(default=None, description="7-leaf Merkle root hash upon settlement")
+    buyer_signature: Optional[str] = Field(default=None, description="Buyer Ed25519 signature")
+    worker_signature: Optional[str] = Field(default=None, description="Worker Ed25519 signature")
 
     @model_validator(mode="after")
     def set_budget_usd(self) -> "SlaContractResponse":
@@ -322,6 +342,10 @@ class AgreementDetailResponse(SlaContractResponse):
         default=None,
         description="Raw arbitration evaluation report payload"
     )
+    audit_bundle: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="7-leaf Merkle verification bundle"
+    )
 
 
 class VaultVelocityModel(BaseModel):
@@ -333,5 +357,15 @@ class VaultVelocityModel(BaseModel):
     window_reset_timestamp: int = Field(default=0, description="Epoch timestamp when 24h budget window resets")
     consecutive_void_count: int = Field(default=0, description="Consecutive AST voids count")
     is_frozen: int = Field(default=0, description="0 = active, 1 = frozen by circuit breaker")
+
+
+# Re-export v2 models for Module 1 & 4
+from backend.app.schemas_v2 import (
+    AgentIdentity,
+    SlaContractV2,
+    A2ANegotiateRequest,
+    VerifyIdentityRequest,
+    MerkleProofResponse,
+)
 
 

@@ -41,8 +41,12 @@ def _dt(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
 
 
-def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+def _iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return value.isoformat()
 
 
 @dataclass
@@ -86,8 +90,34 @@ class Database:
     def init_schema(self) -> None:
         with self._lock:
             self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            for col in (
+                "vault_id VARCHAR(128)",
+                "hash_chain_head VARCHAR(64)",
+                "merkle_root VARCHAR(64)",
+                "buyer_signature TEXT",
+                "worker_signature TEXT",
+            ):
+                try:
+                    self._conn.execute(f"ALTER TABLE contracts ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
             try:
-                self._conn.execute("ALTER TABLE contracts ADD COLUMN vault_id VARCHAR(128)")
+                self._conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS audit_hash_chain (
+                        seq          BIGINT PRIMARY KEY,
+                        agreement_id VARCHAR(128) NOT NULL REFERENCES contracts (agreement_id),
+                        state        VARCHAR(40) NOT NULL,
+                        prev_hash    VARCHAR(64) NOT NULL,
+                        current_hash VARCHAR(64) NOT NULL,
+                        payload_json TEXT,
+                        created_at   TIMESTAMPTZ NOT NULL
+                    )
+                    """
+                )
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_chain_agreement ON audit_hash_chain (agreement_id, seq)"
+                )
             except sqlite3.OperationalError:
                 pass
 
@@ -146,8 +176,9 @@ class Repository:
                     worker_paypal_email, budget_micros, task_description, timeout_seconds,
                     fsm_state, paypal_order_id, paypal_authorization_id, paypal_capture_id,
                     paypal_payout_batch_id, verification_score, authorized_at, report_json,
-                    created_at, updated_at, vault_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, vault_id, hash_chain_head, merkle_root,
+                    buyer_signature, worker_signature)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (agreement_id) DO UPDATE SET
                     fsm_state = excluded.fsm_state,
                     paypal_order_id = excluded.paypal_order_id,
@@ -158,7 +189,11 @@ class Repository:
                     authorized_at = excluded.authorized_at,
                     report_json = excluded.report_json,
                     updated_at = excluded.updated_at,
-                    vault_id = excluded.vault_id
+                    vault_id = excluded.vault_id,
+                    hash_chain_head = excluded.hash_chain_head,
+                    merkle_root = excluded.merkle_root,
+                    buyer_signature = excluded.buyer_signature,
+                    worker_signature = excluded.worker_signature
                 """,
                 (
                     c.agreement_id, c.buyer_agent_id, c.worker_agent_id, c.worker_paypal_email,
@@ -167,6 +202,8 @@ class Repository:
                     c.paypal_payout_batch_id, c.verification_score, _iso(c.authorized_at),
                     json.dumps(c.report) if c.report is not None else None,
                     _iso(c.created_at), _iso(c.updated_at), getattr(c, "vault_id", None),
+                    getattr(c, "hash_chain_head", None), getattr(c, "merkle_root", None),
+                    getattr(c, "buyer_signature", None), getattr(c, "worker_signature", None),
                 ),
             )
             persisted = self.db.query(
@@ -201,11 +238,12 @@ class Repository:
         ]
 
     def _row_to_contract(self, r: Any) -> ContractRecord:
-        vault_id = None
-        try:
-            vault_id = r["vault_id"]
-        except (IndexError, KeyError):
-            pass
+        def _get_val(key: str) -> Any:
+            try:
+                return r[key]
+            except (IndexError, KeyError):
+                return None
+
         return ContractRecord(
             agreement_id=r["agreement_id"],
             buyer_agent_id=r["buyer_agent_id"],
@@ -225,7 +263,11 @@ class Repository:
             created_at=_dt(r["created_at"]),
             updated_at=_dt(r["updated_at"]),
             transitions=self.list_transitions(r["agreement_id"]),
-            vault_id=vault_id,
+            vault_id=_get_val("vault_id"),
+            hash_chain_head=_get_val("hash_chain_head"),
+            merkle_root=_get_val("merkle_root"),
+            buyer_signature=_get_val("buyer_signature"),
+            worker_signature=_get_val("worker_signature"),
         )
 
     def get_contract(self, agreement_id: str) -> Optional[ContractRecord]:
@@ -341,6 +383,67 @@ class Repository:
     def get_webhook_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         rows = self.db.query("SELECT * FROM webhook_events WHERE event_id = ?", (event_id,))
         return dict(rows[0]) if rows else None
+
+    def get_webhook_events_for_agreement(self, agreement_id: str) -> List[Dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT * FROM webhook_events WHERE payload LIKE ? OR resource_id LIKE ? ORDER BY received_at ASC",
+            (f"%{agreement_id}%", f"%{agreement_id}%"),
+        )
+        return [dict(r) for r in rows]
+
+    # ---------------------------------------------------- audit hash chain (Module 4)
+    def append_hash_chain_entry(
+        self,
+        agreement_id: str,
+        state: str,
+        prev_hash: str,
+        current_hash: str,
+        payload_json: Optional[str],
+        created_at: datetime,
+    ) -> None:
+        with self.db.transaction():
+            seq = self.db.query("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM audit_hash_chain")[0]["n"]
+            self.db.execute(
+                """
+                INSERT INTO audit_hash_chain (seq, agreement_id, state, prev_hash, current_hash, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (seq, agreement_id, state, prev_hash, current_hash, payload_json, _iso(created_at)),
+            )
+            self.db.execute(
+                "UPDATE contracts SET hash_chain_head = ? WHERE agreement_id = ?",
+                (current_hash, agreement_id),
+            )
+
+    def get_hash_chain(self, agreement_id: str) -> List[Dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT * FROM audit_hash_chain WHERE agreement_id = ? ORDER BY seq ASC",
+            (agreement_id,),
+        )
+        return [dict(r) for r in rows]
+
+    def update_contract_proofs(
+        self,
+        agreement_id: str,
+        hash_chain_head: Optional[str] = None,
+        merkle_root: Optional[str] = None,
+    ) -> None:
+        with self.db.transaction():
+            if hash_chain_head and merkle_root:
+                self.db.execute(
+                    "UPDATE contracts SET hash_chain_head = ?, merkle_root = ? WHERE agreement_id = ?",
+                    (hash_chain_head, merkle_root, agreement_id),
+                )
+            elif hash_chain_head:
+                self.db.execute(
+                    "UPDATE contracts SET hash_chain_head = ? WHERE agreement_id = ?",
+                    (hash_chain_head, agreement_id),
+                )
+            elif merkle_root:
+                self.db.execute(
+                    "UPDATE contracts SET merkle_root = ? WHERE agreement_id = ?",
+                    (merkle_root, agreement_id),
+                )
 
     # ------------------------------------------------------ buyer vault velocity
     def save_vault(self, v: VaultVelocityRecord) -> None:
