@@ -193,8 +193,14 @@ class EscrowOrchestrator:
             if self.repo.get_contract(agreement_id):
                 raise fsm.FsmError(f"Agreement '{agreement_id}' already exists")
 
-            if getattr(payload, "buyer_signature", None) or getattr(payload, "worker_signature", None):
-                if not validate_dual_signatures(payload.model_dump()):
+            has_buyer_sig = bool(getattr(payload, "buyer_signature", None))
+            has_worker_sig = bool(getattr(payload, "worker_signature", None))
+            if self.settings.REQUIRE_A2A_SIGNATURES and not (has_buyer_sig and has_worker_sig):
+                raise PolicyViolationError("A buyer- and worker-signed agreement is required")
+            if has_buyer_sig or has_worker_sig:
+                if not validate_dual_signatures(
+                    payload.model_dump(), allow_unbound_ids=self.settings.is_mock
+                ):
                     raise fsm.FsmError("A2A signature validation failed: contractor proposal rejected")
 
             if payload.test_suite:

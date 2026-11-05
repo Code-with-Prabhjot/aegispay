@@ -246,6 +246,7 @@ async def test_orchestrator_accepts_valid_a2a_signatures(test_orch):
         "timeout_seconds": 3600,
         "buyer_agent_id": buyer.agent_id,
         "worker_agent_id": worker.agent_id,
+        "worker_paypal_email": "worker@sandbox.paypal.com",  # the payout address is part of what is signed
     })
 
     b_sig = buyer.sign(signing_terms)

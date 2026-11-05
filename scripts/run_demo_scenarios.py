@@ -437,6 +437,7 @@ def run_scenario_1(client: AegisClient, delay: float) -> None:
             budget_micros=15_000_000,
             timeout_seconds=3600,
             contract_id=aid,
+            worker_paypal_email="worker-agent-alpha@personal.example.com",
         )
         signed = sign_sla_agreement(worker, offer, role="worker")
         contract_payload = {

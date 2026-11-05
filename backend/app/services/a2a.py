@@ -7,6 +7,7 @@ Implements:
 3. 3-Way A2A Handshake Flow (SLA_OFFER -> SLA_COUNTER/ACCEPT -> dual-signed agreement).
 """
 
+import hashlib
 import json
 import uuid
 from typing import Any, Dict, Optional, Tuple, Union
@@ -337,6 +338,13 @@ def extract_signing_terms(contract_data: Dict[str, Any]) -> Dict[str, Any]:
     worker_val = contract_data.get("worker") or contract_data.get("worker_agent_id") or ""
     worker_id = worker_val if isinstance(worker_val, str) else getattr(worker_val, "agent_id", "") or worker_val.get("agent_id", "")
 
+    # The payout address and the acceptance tests are part of the deal, so both parties sign them.
+    worker_email = str(contract_data.get("worker_paypal_email") or "").strip().lower()
+    suite = contract_data.get("test_suite") or contract_data.get("test_suite_source") or ""
+    suite_sha256 = contract_data.get("test_suite_sha256") or (
+        hashlib.sha256(suite.encode("utf-8")).hexdigest() if suite else ""
+    )
+
     return {
         "contract_id": contract_id,
         "task_description": task_description,
@@ -344,6 +352,8 @@ def extract_signing_terms(contract_data: Dict[str, Any]) -> Dict[str, Any]:
         "timeout_seconds": float(timeout_seconds),
         "buyer_agent_id": buyer_id,
         "worker_agent_id": worker_id,
+        "worker_paypal_email": worker_email,
+        "test_suite_sha256": suite_sha256,
     }
 
 
@@ -357,9 +367,11 @@ def create_sla_offer(
     test_suite_source: str = "",
     deliverable_schema: Optional[Dict[str, Any]] = None,
     runtime_language: str = "python",
+    worker_paypal_email: str = "",
 ) -> Dict[str, Any]:
     """
-    Step 1: Buyer drafts and signs SLA_OFFER.
+    Step 1: Buyer drafts and signs SLA_OFFER. The signature covers the worker's payout email and
+    the test suite, so neither can be swapped after both parties have signed.
     """
     cid = contract_id or f"agr_{uuid.uuid4().hex[:12]}"
     terms = {
@@ -374,6 +386,7 @@ def create_sla_offer(
         "max_execution_seconds": timeout_seconds,
         "timeout_seconds": int(timeout_seconds),
         "runtime_language": runtime_language,
+        "worker_paypal_email": worker_paypal_email,
         "test_suite_source": test_suite_source,
         "deliverable_schema": deliverable_schema or {},
     }
@@ -390,11 +403,14 @@ def counter_propose_sla(
     offer: Dict[str, Any],
     counter_budget_micros: Optional[int] = None,
     counter_timeout_seconds: Optional[float] = None,
+    worker_paypal_email: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Step 2: Worker counter-proposes or signs offer.
     """
     proposal = dict(offer)
+    if worker_paypal_email is not None:
+        proposal["worker_paypal_email"] = worker_paypal_email
     if counter_budget_micros is not None:
         proposal["agreed_budget_micros"] = counter_budget_micros
         proposal["budget_micros"] = counter_budget_micros
@@ -432,10 +448,36 @@ def sign_sla_agreement(
     return doc
 
 
-def validate_dual_signatures(contract_data: Dict[str, Any]) -> bool:
+def _public_key_bytes(public_key: str) -> Optional[bytes]:
+    try:
+        raw = did_to_pubkey(public_key) if public_key.startswith("did:key:") else bytes.fromhex(public_key.strip())
+    except ValueError:
+        return None
+    return raw if len(raw) == 32 else None
+
+
+def key_belongs_to_agent(agent_id: str, public_key: str, allow_unbound_ids: bool = True) -> bool:
     """
-    Verifies that both buyer_signature and worker_signature are present and
-    cryptographically valid for the canonical contract terms.
+    A signature only identifies the signer if the key is the agent's. A did:key agent id encodes its
+    public key, so the two must match. Other ids (names) cannot be bound to a key and are only
+    accepted when allow_unbound_ids is set (mock mode).
+    """
+    key = _public_key_bytes(public_key)
+    if key is None:
+        return False
+    if agent_id.startswith("did:key:"):
+        try:
+            return did_to_pubkey(agent_id) == key
+        except ValueError:
+            return False
+    return allow_unbound_ids
+
+
+def validate_dual_signatures(contract_data: Dict[str, Any], allow_unbound_ids: bool = True) -> bool:
+    """
+    Verifies that both buyer_signature and worker_signature are present, valid for the canonical
+    contract terms (including the worker's payout email and the test suite), and made by keys that
+    belong to the named buyer and worker agents.
     """
     buyer_sig = contract_data.get("buyer_signature")
     worker_sig = contract_data.get("worker_signature")
@@ -461,6 +503,11 @@ def validate_dual_signatures(contract_data: Dict[str, Any]) -> bool:
         or contract_data.get("worker_agent_id")
     )
     if not worker_pub:
+        return False
+
+    if not key_belongs_to_agent(signing_terms["buyer_agent_id"], buyer_pub, allow_unbound_ids):
+        return False
+    if not key_belongs_to_agent(signing_terms["worker_agent_id"], worker_pub, allow_unbound_ids):
         return False
 
     buyer_valid = verify_agent_signature(buyer_pub, signing_terms, buyer_sig)
