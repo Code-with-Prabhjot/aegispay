@@ -204,7 +204,7 @@ export default function Landing() {
       <section className="stats reveal">
         <Stat to={15} label="escrow states modelled" />
         <Stat to={3} label="settlement outcomes" />
-        <Stat to={54} label="automated tests passing" />
+        <Stat to={296} label="automated tests passing" />
         <Stat to={0} label="unbalanced ledger entries" />
       </section>
 
@@ -255,7 +255,7 @@ export default function Landing() {
         <div className="blob b3" />
         <h2>Ready to watch an escrow settle?</h2>
         <p>Run three preset scenarios in the live dashboard: a clean pass, a partial defect and a malicious injection.</p>
-        <button className="btn light" onClick={go}>Get started <span>→</span></button>
+        <button className="btn light" onClick={go}>Launch Mission Control <span>→</span></button>
       </section>
 
       <footer>
