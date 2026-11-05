@@ -30,6 +30,19 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Health Api V1 Health Get
+  /api/v1/webhooks/paypal:
+    post:
+      summary: Paypal Webhook
+      operationId: paypal_webhook_api_v1_webhooks_paypal_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Paypal Webhook Api V1 Webhooks Paypal Post
   /api/v1/contracts:
     get:
       summary: List Contracts
@@ -43,6 +56,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response List Contracts Api V1 Contracts Get
+      security:
+      - APIKeyHeader: []
     post:
       summary: Create Contract
       operationId: create_contract_api_v1_contracts_post
@@ -67,10 +82,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
   /api/v1/contracts/{agreement_id}:
     get:
       summary: Get Contract
       operationId: get_contract_api_v1_contracts__agreement_id__get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -97,6 +116,8 @@ paths:
     post:
       summary: Submit
       operationId: submit_api_v1_contracts__agreement_id__submit_post
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -129,6 +150,8 @@ paths:
     post:
       summary: Check Expiry
       operationId: check_expiry_api_v1_contracts__agreement_id__check_expiry_post
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -156,6 +179,8 @@ paths:
     post:
       summary: Retry Payout
       operationId: retry_payout_api_v1_contracts__agreement_id__payout_retry_post
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -183,6 +208,8 @@ paths:
     post:
       summary: Run Demo
       operationId: run_demo_api_v1_demo_scenarios__name__post
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: name
         in: path
@@ -225,10 +252,14 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Ledger Api V1 Ledger Get
+      security:
+      - APIKeyHeader: []
   /api/v1/agreements/{agreement_id}/detail:
     get:
       summary: Get Agreement Detail
       operationId: get_agreement_detail_api_v1_agreements__agreement_id__detail_get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -253,6 +284,8 @@ paths:
     get:
       summary: Get Contract Detail
       operationId: get_contract_detail_api_v1_contracts__agreement_id__detail_get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -277,6 +310,8 @@ paths:
     get:
       summary: Get Contract Merkle Proof
       operationId: get_contract_merkle_proof_api_v1_contracts__agreement_id__merkle_proof__leaf_index__get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -307,6 +342,8 @@ paths:
     get:
       summary: Get Agreement Merkle Proof
       operationId: get_agreement_merkle_proof_api_v1_agreements__agreement_id__merkle_proof__leaf_index__get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: agreement_id
         in: path
@@ -358,6 +395,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
   /api/v1/a2a/verify-identity:
     post:
       summary: A2A Verify Identity
@@ -383,6 +422,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
   /api/v1/vaults:
     post:
       summary: Create Or Update Vault
@@ -408,10 +449,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
   /api/v1/vaults/{vault_id}:
     get:
       summary: Get Vault Status
       operationId: get_vault_status_api_v1_vaults__vault_id__get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: vault_id
         in: path
@@ -438,6 +483,8 @@ paths:
     post:
       summary: Reset Circuit Breaker Endpoint
       operationId: reset_circuit_breaker_endpoint_api_v1_vaults__vault_id__reset_post
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: vault_id
         in: path
@@ -488,10 +535,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
   /api/v1/sweeper/status:
     get:
       summary: Get Sweeper Status Endpoint
       operationId: get_sweeper_status_endpoint_api_v1_sweeper_status_get
+      security:
+      - APIKeyHeader: []
       parameters:
       - name: simulate_now
         in: query
@@ -531,6 +582,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Mcp Manifest Api V1 Mcp Manifest Get
+      security:
+      - APIKeyHeader: []
   /api/v1/mcp/execute:
     post:
       summary: Execute Mcp Tool
@@ -556,19 +609,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/webhooks/paypal:
-    post:
-      summary: Paypal Webhook
-      operationId: paypal_webhook_api_v1_webhooks_paypal_post
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties: true
-                type: object
-                title: Response Paypal Webhook Api V1 Webhooks Paypal Post
+      security:
+      - APIKeyHeader: []
 components:
   schemas:
     A2ANegotiateRequest:
@@ -1226,3 +1268,8 @@ components:
       - challenge
       - signature_hex
       title: VerifyIdentityRequest
+  securitySchemes:
+    APIKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key

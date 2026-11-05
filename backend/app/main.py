@@ -7,14 +7,18 @@ All routes live under /api/v1.
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
+import hmac
 import json
 from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel, Field, ValidationError
+
+ALLOWED_ORIGINS = ["http://localhost:3000"]
 
 from backend.app.api.routes_webhooks import router as webhooks_router
 from backend.app.config import Settings, settings as default_settings
@@ -189,7 +193,7 @@ def create_app(
     app = FastAPI(title="AegisPay", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -209,7 +213,27 @@ def create_app(
     app.state.broadcaster = broadcaster_mgr
     app.state.sweeper = sweeper
 
-    api = APIRouter(prefix="/api/v1")
+    def _key_matches(supplied: str) -> bool:
+        return hmac.compare_digest(supplied.encode("utf-8"), cfg.API_AUTH_KEY.encode("utf-8"))
+
+    api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+    async def require_api_key(supplied: Optional[str] = Security(api_key_header)) -> None:
+        """Mock mode may run open; otherwise the key must be configured and presented."""
+        if not cfg.API_AUTH_KEY:
+            if cfg.is_mock:
+                return
+            raise HTTPException(503, "API_AUTH_KEY is not configured")
+        if not _key_matches(supplied or ""):
+            raise HTTPException(401, "Missing or invalid API key")
+
+    # /health and the PayPal webhook (which authenticates by signature) stay outside the key check.
+    public = APIRouter(prefix="/api/v1")
+    api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
+
+    def _demo_only(what: str) -> None:
+        if not cfg.is_mock:
+            raise HTTPException(403, f"{what} is only available in mock mode")
 
     def _handle(exc: Exception) -> HTTPException:
         if isinstance(exc, NotFoundError):
@@ -226,7 +250,7 @@ def create_app(
             return HTTPException(502, str(exc))
         raise exc
 
-    @api.get("/health")
+    @public.get("/health")
     async def health() -> Dict[str, Any]:
         mock = bool(getattr(paypal, "is_mock", False))
         return {"status": "ok", "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE, "mock": mock}
@@ -438,6 +462,7 @@ def create_app(
     async def get_default_vault_status() -> Dict[str, Any]:
         vault = repository.get_vault("vault_buyer_primary")
         if vault is None:
+            _demo_only("Creating the default demo vault")
             vault = register_vault(
                 vault_id="vault_buyer_primary",
                 buyer_did="did:aegis:buyer:enterprise-agent-01",
@@ -457,6 +482,7 @@ def create_app(
     @api.post("/vault/refresh", include_in_schema=False)
     @api.post("/vaults/refresh", include_in_schema=False)
     async def refresh_vault_allowance(vault_id: Optional[str] = None) -> Dict[str, Any]:
+        _demo_only("Refreshing a vault allowance (it zeroes the spend counter)")
         vid = vault_id or "vault_buyer_primary"
         vault = repository.get_vault(vid)
         if vault is None:
@@ -487,6 +513,7 @@ def create_app(
         vid = vault_id or "vault_buyer_primary"
         vault = repository.get_vault(vid)
         if vault is None:
+            _demo_only("Freezing an unregistered vault")
             vault = register_vault(
                 vault_id=vid,
                 buyer_did="did:aegis:buyer:enterprise-agent-01",
@@ -508,10 +535,14 @@ def create_app(
     async def run_sweeper_endpoint(params: Optional[SweeperRunParams] = None) -> Dict[str, Any]:
         simulate_now = params.simulate_now if params else None
         threshold_hours = params.threshold_hours if params else None
+        if simulate_now is not None or threshold_hours is not None:
+            _demo_only("Overriding the sweeper clock or threshold")
         return await sweeper.sweep(now=simulate_now, threshold_hours=threshold_hours)
 
     @api.get("/sweeper/status")
     async def get_sweeper_status_endpoint(simulate_now: Optional[datetime] = None) -> Dict[str, Any]:
+        if simulate_now is not None:
+            _demo_only("Overriding the sweeper clock")
         return sweeper.get_status(now=simulate_now)
 
     @api.get("/mcp/manifest")
@@ -554,10 +585,22 @@ def create_app(
 
             else:
                 raise HTTPException(404, f"Unknown MCP tool '{call.name}'")
+        except (KeyError, ValidationError) as exc:
+            raise HTTPException(422, f"Invalid arguments for MCP tool '{call.name}': {exc}")
         except Exception as exc:
             raise _handle(exc)
 
     async def _ws_ledger_handler(websocket: WebSocket) -> None:
+        # Browsers do not apply CORS to WebSockets, so check the Origin here, and the key like REST.
+        origin = websocket.headers.get("origin")
+        key_ok = (
+            _key_matches(websocket.headers.get("x-api-key", ""))
+            if cfg.API_AUTH_KEY
+            else cfg.is_mock
+        )
+        if (origin is not None and origin not in ALLOWED_ORIGINS) or not key_ok:
+            await websocket.close(code=1008)
+            return
         await broadcaster_mgr.connect(websocket)
         try:
             contracts = [c.to_response().model_dump(mode="json") for c in repository.list_contracts()]
@@ -582,11 +625,13 @@ def create_app(
         finally:
             await broadcaster_mgr.disconnect(websocket)
 
-    api.add_api_websocket_route("/ws/ledger", _ws_ledger_handler)
-    api.add_api_websocket_route("/ws/dashboard", _ws_ledger_handler)
+    # The handler checks Origin and the key itself (router dependencies take an HTTP Request).
+    public.add_api_websocket_route("/ws/ledger", _ws_ledger_handler)
+    public.add_api_websocket_route("/ws/dashboard", _ws_ledger_handler)
     app.add_api_websocket_route("/ws/dashboard", _ws_ledger_handler)
 
-    api.include_router(webhooks_router)
+    public.include_router(webhooks_router)
+    app.include_router(public)
     app.include_router(api)
     return app
 

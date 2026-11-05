@@ -335,3 +335,143 @@ def test_api_returns_503_when_no_isolated_sandbox_exists(tmp_path):
         aid = c.post(f"{P}/contracts", json=api_body(test_suite=SUITE), headers=h).json()["agreement_id"]
         r = c.post(f"{P}/contracts/{aid}/submit", json={"source_code": "def f(): ..."}, headers=h)
         assert r.status_code == 503
+
+
+# ------------------------------------------------------------------------------ API authentication
+KEY = "test-api-key-123"
+KEY_HEADERS = {"X-API-Key": KEY}
+
+PROTECTED = [
+    ("get", "/contracts", None),
+    ("post", "/contracts", api_body()),
+    ("get", "/ledger", None),
+    ("post", "/sweeper/run", {}),
+    ("get", "/sweeper/status", None),
+    ("post", "/vaults", {"vault_id": "v", "buyer_did": "did:x"}),
+    ("post", "/vaults/v/reset", None),
+    ("post", "/vault/refresh", None),
+    ("post", "/vault/freeze", None),
+    ("post", "/mcp/execute", {"name": "aegispay_check_escrow_status", "arguments": {"agreement_id": "x"}}),
+    ("post", "/a2a/negotiate", {"buyer_pref": {}, "worker_pref": {}}),
+]
+
+
+def call(c, method, path, body=None, headers=None):
+    return getattr(c, method)(f"{P}{path}", **({"json": body} if body is not None else {}), headers=headers or {})
+
+
+def app_client(tmp_path, **cfg):
+    cfg.setdefault("DATABASE_URL", f"sqlite:///{tmp_path}/a.db")
+    app = create_app(settings(**cfg), engine=MockPayPalEscrowEngine())
+    app.state.orchestrator.arbiter = RecordingArbiter()
+    return TestClient(app)
+
+
+def test_mock_mode_without_a_key_stays_open_for_local_demos(tmp_path):
+    with app_client(tmp_path) as c:
+        assert c.get(f"{P}/health").status_code == 200
+        assert c.get(f"{P}/contracts").status_code == 200
+
+
+@pytest.mark.parametrize("method,path,body", PROTECTED)
+def test_outside_mock_mode_requests_are_refused_until_a_key_is_configured(tmp_path, method, path, body):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox") as c:
+        assert call(c, method, path, body).status_code == 503
+        assert call(c, method, path, body, KEY_HEADERS).status_code == 503
+
+
+@pytest.mark.parametrize("method,path,body", PROTECTED)
+@pytest.mark.parametrize("mode", ["mock", "sandbox"])
+def test_a_configured_key_is_required_in_every_mode(tmp_path, mode, method, path, body):
+    with app_client(tmp_path, PAYPAL_MODE=mode, API_AUTH_KEY=KEY) as c:
+        assert call(c, method, path, body).status_code == 401
+        assert call(c, method, path, body, {"X-API-Key": "wrong"}).status_code == 401
+        assert call(c, method, path, body, {"X-API-Key": KEY[:-1]}).status_code == 401
+        assert call(c, method, path, body, KEY_HEADERS).status_code != 401
+
+
+def test_health_and_the_signed_webhook_never_need_the_key(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY, PAYPAL_WEBHOOK_MOCK_BYPASS=True) as c:
+        assert c.get(f"{P}/health").status_code == 200
+        event = {"id": "WH-1", "event_type": "PAYMENT.AUTHORIZATION.VOIDED", "resource": {"id": "A"}}
+        assert c.post(f"{P}/webhooks/paypal", json=event).status_code == 200
+
+
+def test_health_is_open_even_when_unconfigured_outside_mock_mode(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox") as c:
+        assert c.get(f"{P}/health").status_code == 200
+
+
+# ------------------------------------------------------------------------------------- WebSocket
+def ws_rejected(c, headers=None):
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect):
+        with c.websocket_connect("/api/v1/ws/ledger", headers=headers or {}):
+            pass
+
+
+def test_websocket_rejects_foreign_origins_even_in_mock_mode(tmp_path):
+    with app_client(tmp_path) as c:
+        ws_rejected(c, {"origin": "https://evil.example"})
+        with c.websocket_connect("/api/v1/ws/ledger", headers={"origin": "http://localhost:3000"}) as ws:
+            assert ws.receive_json()["event_type"] == "INITIAL_SNAPSHOT"
+
+
+def test_websocket_needs_the_key_when_one_is_configured(tmp_path):
+    with app_client(tmp_path, API_AUTH_KEY=KEY) as c:
+        ws_rejected(c)
+        ws_rejected(c, {"x-api-key": "wrong"})
+        with c.websocket_connect("/api/v1/ws/ledger", headers=KEY_HEADERS) as ws:
+            assert ws.receive_json()["event_type"] == "INITIAL_SNAPSHOT"
+
+
+def test_websocket_is_closed_outside_mock_mode_without_a_key(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox") as c:
+        ws_rejected(c)
+
+
+# ------------------------------------------------------------------- demo-only overrides are mock-only
+FUTURE = "2099-01-01T00:00:00+00:00"
+
+
+def test_sweeper_clock_override_is_refused_outside_mock_mode(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY) as c:
+        aid = c.post(f"{P}/contracts", json=api_body(test_suite=SUITE), headers=KEY_HEADERS).json()["agreement_id"]
+        r = c.post(f"{P}/sweeper/run", json={"simulate_now": FUTURE}, headers=KEY_HEADERS)
+        assert r.status_code == 403
+        assert c.post(f"{P}/sweeper/run", json={"threshold_hours": 0}, headers=KEY_HEADERS).status_code == 403
+        assert c.get(f"{P}/sweeper/status", params={"simulate_now": FUTURE}, headers=KEY_HEADERS).status_code == 403
+        assert c.post(f"{P}/sweeper/run", json={}, headers=KEY_HEADERS).status_code == 200
+        assert c.get(f"{P}/contracts/{aid}", headers=KEY_HEADERS).json()["fsm_state"] == "PAYPAL_AUTH_LOCKED"
+
+
+def test_sweeper_clock_override_still_works_in_mock_mode(tmp_path):
+    with app_client(tmp_path) as c:
+        aid = c.post(f"{P}/contracts", json=api_body()).json()["agreement_id"]
+        assert c.post(f"{P}/sweeper/run", json={"simulate_now": FUTURE}).json()["voided_count"] == 1
+        assert c.get(f"{P}/contracts/{aid}").json()["fsm_state"] == "ESCROW_VOIDED_REFUNDED"
+
+
+def test_vault_spend_reset_and_demo_vault_creation_are_mock_only(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY) as c:
+        c.post(f"{P}/vaults", json={"vault_id": "v", "buyer_did": "did:x", "current_daily_spent_micros": 5}, headers=KEY_HEADERS)
+        assert c.post(f"{P}/vault/refresh", params={"vault_id": "v"}, headers=KEY_HEADERS).status_code == 403
+        assert c.get(f"{P}/vaults/v", headers=KEY_HEADERS).json()["current_daily_spent_micros"] == 5
+        assert c.get(f"{P}/vault/status", headers=KEY_HEADERS).status_code == 403
+        assert c.post(f"{P}/vaults/ghost/freeze", headers=KEY_HEADERS).status_code == 403
+        assert c.get(f"{P}/vaults/ghost", headers=KEY_HEADERS).status_code == 404
+
+
+def test_circuit_breaker_reset_stays_available_to_key_holders(tmp_path):
+    with app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY) as c:
+        c.post(f"{P}/vaults", json={"vault_id": "v", "buyer_did": "did:x", "is_frozen": 1}, headers=KEY_HEADERS)
+        r = c.post(f"{P}/vaults/v/reset", headers=KEY_HEADERS)
+        assert r.status_code == 200 and r.json()["vault"]["is_frozen"] == 0
+
+
+def test_mcp_with_missing_arguments_is_a_422_not_a_500(tmp_path):
+    with app_client(tmp_path) as c:
+        r = c.post(f"{P}/mcp/execute", json={"name": "aegispay_submit_deliverable", "arguments": {}})
+        assert r.status_code == 422
+        r = c.post(f"{P}/mcp/execute", json={"name": "aegispay_propose_agreement", "arguments": {"buyer_agent_id": "b"}})
+        assert r.status_code == 422
