@@ -125,6 +125,20 @@ class MockPayPalEscrowEngine:
             "paypal_status": "VOIDED",
         }
 
+    async def reauthorize_authorization(
+        self,
+        agreement_id: str,
+        authorization_id: str,
+        amount_micros: int,
+    ) -> Dict[str, Any]:
+        key = derive_idempotency_key(agreement_id, "reauthorize_auth")
+        auth_id = _fake_id("MOCKREAUTH", key)
+        return {
+            "id": auth_id,
+            "status": "CREATED",
+            "amount": {"currency_code": "USD", "value": micros_to_usd_str(amount_micros)},
+        }
+
     async def dispatch_worker_payout(
         self,
         agreement_id: str,

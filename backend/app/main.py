@@ -5,6 +5,7 @@ All routes live under /api/v1.
 """
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -55,6 +56,7 @@ from backend.app.services.orchestrator import (
 )
 from backend.app.services.paypal_mock import get_paypal_engine
 from backend.app.services.scenario_presets import SCENARIOS
+from backend.app.services.sweeper import ReauthorizationSweeper
 from backend.app.services.vault_service import (
     VaultCircuitBreakerError,
     register_vault,
@@ -66,6 +68,12 @@ class SubmitWork(BaseModel):
     source_code: str = Field(..., min_length=1, max_length=200_000)
     test_suite: str = Field(..., min_length=1, max_length=200_000)
     runtime: Optional[str] = Field(default=None, description="Execution runtime: python | typescript | javascript")
+    semantic_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Optional override for semantic score [0.0, 1.0]")
+
+
+class SweeperRunParams(BaseModel):
+    simulate_now: Optional[datetime] = Field(default=None, description="Simulated current timestamp for dry-run sweeps")
+    threshold_hours: Optional[float] = Field(default=None, description="Honor expiration buffer window threshold in hours (default 70.0)")
 
 
 def contract_detail(c: fsm.ContractRecord) -> Dict[str, Any]:
@@ -179,10 +187,15 @@ def create_app(
     paypal = engine or get_paypal_engine(cfg)
     ledger = DoubleEntryLedgerEngine.from_repository(repository, broadcaster=broadcaster_mgr)
     orch = EscrowOrchestrator(repository, ledger, paypal, cfg, broadcaster=broadcaster_mgr)
+    sweeper = ReauthorizationSweeper(
+        repository, ledger, paypal, clock=orch.clock, broadcaster=broadcaster_mgr
+    )
+    orch.sweeper = sweeper
     app.state.repo = repository
     app.state.orchestrator = orch
     app.state.ledger = ledger
     app.state.broadcaster = broadcaster_mgr
+    app.state.sweeper = sweeper
 
     api = APIRouter(prefix="/api/v1")
 
@@ -224,7 +237,13 @@ def create_app(
     @api.post("/contracts/{agreement_id}/submit")
     async def submit(agreement_id: str, body: SubmitWork) -> Dict[str, Any]:
         try:
-            c = await orch.submit_work(agreement_id, body.source_code, body.test_suite, runtime=body.runtime)
+            c = await orch.submit_work(
+                agreement_id,
+                body.source_code,
+                body.test_suite,
+                semantic_score=body.semantic_score,
+                runtime=body.runtime,
+            )
         except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
         return contract_detail(c)
@@ -397,6 +416,16 @@ def create_app(
         if vault is None:
             raise HTTPException(404, f"Vault '{vault_id}' not found")
         return {"status": "unfrozen", "vault": vault.to_dict()}
+
+    @api.post("/sweeper/run")
+    async def run_sweeper_endpoint(params: Optional[SweeperRunParams] = None) -> Dict[str, Any]:
+        simulate_now = params.simulate_now if params else None
+        threshold_hours = params.threshold_hours if params else None
+        return await sweeper.sweep(now=simulate_now, threshold_hours=threshold_hours)
+
+    @api.get("/sweeper/status")
+    async def get_sweeper_status_endpoint(simulate_now: Optional[datetime] = None) -> Dict[str, Any]:
+        return sweeper.get_status(now=simulate_now)
 
     @api.get("/mcp/manifest")
     async def get_mcp_manifest() -> Dict[str, Any]:

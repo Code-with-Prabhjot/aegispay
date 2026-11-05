@@ -12,12 +12,17 @@ from backend.app.db import Repository, VaultVelocityRecord
 from backend.app.services import fsm
 
 
+VAULT_LOCKED_CIRCUIT_BREAKER = "VAULT_LOCKED_CIRCUIT_BREAKER"
+CIRCUIT_BREAKER_ACTIVE = "CIRCUIT_BREAKER_ACTIVE"
+
+
 class VaultCircuitBreakerError(fsm.FsmError):
     """Raised when vault velocity or circuit breaker check fails."""
 
     def __init__(self, reason: str, vault_id: Optional[str] = None):
         self.reason = reason
         self.vault_id = vault_id
+        self.status = VAULT_LOCKED_CIRCUIT_BREAKER
         super().__init__(f"Vault velocity circuit breaker rejected: {reason}")
 
 

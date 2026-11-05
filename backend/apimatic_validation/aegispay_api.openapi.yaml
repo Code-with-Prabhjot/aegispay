@@ -461,6 +461,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/sweeper/run:
+    post:
+      summary: Run Sweeper Endpoint
+      operationId: run_sweeper_endpoint_api_v1_sweeper_run_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/SweeperRunParams'
+              - type: 'null'
+              title: Params
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Run Sweeper Endpoint Api V1 Sweeper Run Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/sweeper/status:
+    get:
+      summary: Get Sweeper Status Endpoint
+      operationId: get_sweeper_status_endpoint_api_v1_sweeper_status_get
+      parameters:
+      - name: simulate_now
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Simulate Now
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Sweeper Status Endpoint Api V1 Sweeper Status
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mcp/manifest:
     get:
       summary: Get Mcp Manifest
@@ -997,11 +1054,37 @@ components:
           - type: 'null'
           title: Runtime
           description: 'Execution runtime: python | typescript | javascript'
+        semantic_score:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Semantic Score
+          description: Optional override for semantic score [0.0, 1.0]
       type: object
       required:
       - source_code
       - test_suite
       title: SubmitWork
+    SweeperRunParams:
+      properties:
+        simulate_now:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Simulate Now
+          description: Simulated current timestamp for dry-run sweeps
+        threshold_hours:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold Hours
+          description: Honor expiration buffer window threshold in hours (default
+            70.0)
+      type: object
+      title: SweeperRunParams
     TestAssertionItem:
       properties:
         name:

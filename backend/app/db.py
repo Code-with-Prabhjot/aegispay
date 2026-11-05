@@ -60,6 +60,10 @@ class VaultVelocityRecord:
     consecutive_void_count: int = 0
     is_frozen: int = 0
 
+    @property
+    def status(self) -> str:
+        return "VAULT_LOCKED_CIRCUIT_BREAKER" if self.is_frozen == 1 else "ACTIVE"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "vault_id": self.vault_id,
@@ -70,6 +74,7 @@ class VaultVelocityRecord:
             "window_reset_timestamp": self.window_reset_timestamp,
             "consecutive_void_count": self.consecutive_void_count,
             "is_frozen": self.is_frozen,
+            "status": self.status,
         }
 
 
@@ -188,6 +193,7 @@ class Repository:
                     verification_score = excluded.verification_score,
                     authorized_at = excluded.authorized_at,
                     report_json = excluded.report_json,
+                    created_at = excluded.created_at,
                     updated_at = excluded.updated_at,
                     vault_id = excluded.vault_id,
                     hash_chain_head = excluded.hash_chain_head,

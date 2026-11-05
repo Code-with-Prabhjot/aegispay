@@ -334,6 +334,36 @@ class PayPalEscrowEngine:
         res.raise_for_status()
         return res.json()
 
+    async def reauthorize_authorization(
+        self,
+        agreement_id: str,
+        authorization_id: str,
+        amount_micros: int,
+    ) -> Dict[str, Any]:
+        """
+        Reauthorizes an existing PayPal authorization hold within or extending the honor period.
+        """
+        token = await self.get_access_token()
+        req_id = derive_idempotency_key(agreement_id, "reauthorize_auth")
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "PayPal-Request-Id": req_id,
+        }
+        payload = {
+            "amount": {
+                "currency_code": "USD",
+                "value": micros_to_usd_str(amount_micros),
+            }
+        }
+        res = await self.http.post(
+            f"{self.base_url}/v2/payments/authorizations/{authorization_id}/reauthorize",
+            json=payload,
+            headers=headers,
+        )
+        res.raise_for_status()
+        return res.json()
+
     async def dispatch_worker_payout(
         self,
         agreement_id: str,
