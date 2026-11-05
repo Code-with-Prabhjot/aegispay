@@ -204,7 +204,7 @@ export default function Landing() {
       <section className="stats reveal">
         <Stat to={15} label="escrow states modelled" />
         <Stat to={3} label="settlement outcomes" />
-        <Stat to={296} label="automated tests passing" />
+        <Stat to={539} label="automated tests passing" />
         <Stat to={0} label="unbalanced ledger entries" />
       </section>
 
