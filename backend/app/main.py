@@ -295,6 +295,13 @@ def create_app(
         except NotFoundError as exc:
             raise _handle(exc)
 
+    @api.post("/contracts/{agreement_id}/settlement/retry")
+    async def retry_settlement(agreement_id: str) -> Dict[str, Any]:
+        try:
+            return contract_detail(await orch.retry_settlement(agreement_id))
+        except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
+            raise _handle(exc)
+
     @api.post("/contracts/{agreement_id}/payout/retry")
     async def retry_payout(agreement_id: str) -> Dict[str, Any]:
         try:

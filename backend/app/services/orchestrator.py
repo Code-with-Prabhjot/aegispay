@@ -7,8 +7,9 @@ Every state change goes through fsm.transition() and is persisted with its histo
 import asyncio
 import hashlib
 import json
+import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from backend.app.config import Settings
@@ -29,7 +30,7 @@ from backend.app.services.merkle_audit import (
     compute_genesis_hash,
     compute_transition_hash,
 )
-from backend.app.services.paypal_escrow import usd_amount_to_micros
+from backend.app.services.paypal_escrow import compute_settlement_split, usd_amount_to_micros
 from backend.app.services.scenario_presets import PresetScenario, get_scenario
 from backend.app.services.vault_service import (
     VaultCircuitBreakerError,
@@ -37,9 +38,20 @@ from backend.app.services.vault_service import (
     record_vault_settlement,
 )
 
+logger = logging.getLogger(__name__)
+
 ESCROW = LedgerAccount.PAYPAL_ESCROW_HOLD.value
 BUYER = LedgerAccount.BUYER_VAULT.value
 WORKER = LedgerAccount.WORKER_PAYABLE.value
+
+# A contract in these states has a decision recorded but PayPal hasn't confirmed it yet.
+SETTLEMENT_PENDING_STATES = frozenset({
+    FsmState.FULL_CAPTURE_PENDING,
+    FsmState.PARTIAL_CAPTURE_PENDING,
+    FsmState.VOID_PENDING,
+})
+# An evaluation that has been running this long has died (crash or restart); the worker's code is not stored.
+STUCK_EVALUATION_AFTER = timedelta(minutes=10)
 
 AUTHORIZATION_CREATED = "PAYMENT.AUTHORIZATION.CREATED"
 AUTHORIZATION_VOIDED = "PAYMENT.AUTHORIZATION.VOIDED"
@@ -333,17 +345,22 @@ class EscrowOrchestrator:
             self._move(c, FsmState.ARBITRATION_AUDITING, "Running test suite + AST scan + rubric")
             self.repo.save_contract(c)
 
-            report: ArbitrationReport = await asyncio.to_thread(
-                self.arbiter.evaluate,
-                agreement_id=agreement_id,
-                worker_code=source_code,
-                buyer_test_code=test_suite,
-                budget_micros=c.budget_micros,
-                semantic_score=semantic_score,
-                platform_fee_bps=self.settings.PROTOCOL_FEE_BPS,
-                paypal_payout_fee_micros=self.settings.PAYPAL_PAYOUT_FEE_MICROS,
-                runtime=runtime,
-            )
+            try:
+                report: ArbitrationReport = await asyncio.to_thread(
+                    self.arbiter.evaluate,
+                    agreement_id=agreement_id,
+                    worker_code=source_code,
+                    buyer_test_code=test_suite,
+                    budget_micros=c.budget_micros,
+                    semantic_score=semantic_score,
+                    platform_fee_bps=self.settings.PROTOCOL_FEE_BPS,
+                    paypal_payout_fee_micros=self.settings.PAYPAL_PAYOUT_FEE_MICROS,
+                    runtime=runtime,
+                )
+            except Exception as exc:  # noqa: BLE001 - any arbiter failure must not strand the hold
+                logger.exception("Arbiter failed for %s", agreement_id)
+                await self._void_after_arbiter_failure(c, exc)
+                return c
             c.report = report.model_dump(mode="json")
             c.verification_score = report.composite_score
             if self.broadcaster:
@@ -371,7 +388,47 @@ class EscrowOrchestrator:
                 await self._capture_and_payout(c, report)
             return c
 
-    async def _void(self, c: fsm.ContractRecord, report: ArbitrationReport) -> None:
+    async def _void_after_arbiter_failure(self, c: fsm.ContractRecord, exc: BaseException) -> None:
+        """
+        The arbiter crashed, so nothing was verified and the worker cannot be paid. Void the hold so
+        the buyer's funds are not left locked; the worker can resubmit under a new agreement.
+        """
+        split = compute_settlement_split(c.budget_micros, 0.0)
+        report = ArbitrationReport(
+            agreement_id=c.agreement_id, s_pytest=0.0, s_ast=1.0, s_semantic=0.0, composite_score=0.0,
+            passed_tests=0, total_tests=0, ast_safe=True, settlement=split,
+            stdout=f"Arbiter failure ({type(exc).__name__}): hold voided, nothing was verified or captured.",
+        )
+        c.report = report.model_dump(mode="json")
+        c.verification_score = 0.0
+        self._move(c, FsmState.VOID_PENDING, f"Arbiter failed ({type(exc).__name__}); voiding the hold")
+        await self._void(c, report, penalize_vault=False)
+
+    async def retry_settlement(self, agreement_id: str) -> fsm.ContractRecord:
+        """
+        Re-drive a settlement PayPal never confirmed. The capture and void calls carry deterministic
+        PayPal-Request-Ids, so repeating one that already went through returns PayPal's original answer.
+        A contract whose evaluation died mid-flight (no stored code to re-run) is voided instead.
+        """
+        async with self._lock:
+            c = self.get(agreement_id)
+            if c.fsm_state in (FsmState.SANDBOX_EXECUTING, FsmState.ARBITRATION_AUDITING):
+                if self.clock() - c.updated_at < STUCK_EVALUATION_AFTER:
+                    raise fsm.FsmError(f"{agreement_id} is still being evaluated; retry later")
+                await self._void_after_arbiter_failure(c, TimeoutError("evaluation never completed"))
+                return c
+            if c.fsm_state not in SETTLEMENT_PENDING_STATES:
+                raise fsm.FsmError(f"Nothing to retry for {agreement_id} in state {c.fsm_state.value}")
+            if not c.report:
+                raise fsm.FsmError(f"{agreement_id} has no arbitration report to settle from")
+            report = ArbitrationReport(**c.report)
+            if c.fsm_state == FsmState.VOID_PENDING:
+                await self._void(c, report)
+            else:
+                await self._capture_and_payout(c, report)
+            return c
+
+    async def _void(self, c: fsm.ContractRecord, report: ArbitrationReport, penalize_vault: bool = True) -> None:
         try:
             res = await self.engine.void_authorization(c.agreement_id, c.paypal_authorization_id)
         except Exception as exc:
@@ -381,7 +438,7 @@ class EscrowOrchestrator:
         self._move(c, FsmState.ESCROW_VOIDED_REFUNDED, "Authorization voided; hold released to buyer")
         with self.repo.db.transaction():
             self.ledger.record_settlement(c.agreement_id, report.settlement)
-            if getattr(c, "vault_id", None):
+            if getattr(c, "vault_id", None) and penalize_vault:
                 record_vault_settlement(
                     c.vault_id,
                     0,
