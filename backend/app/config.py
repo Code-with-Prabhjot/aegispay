@@ -32,6 +32,27 @@ class Settings(BaseSettings):
         description="Skip webhook signature verification (local pytest runs only; rejected in live mode)",
     )
 
+    # API access control and trust policy
+    API_AUTH_KEY: str = Field(
+        default="",
+        description="Shared secret required in the X-API-Key header on every non-webhook route. "
+        "Optional in mock mode; required in sandbox and live mode.",
+    )
+    ALLOW_UNBOUND_TEST_SUITE: bool = Field(
+        default=False,
+        description="Let the submitter supply the test suite when the agreement has none committed "
+        "(always allowed in mock mode; never enable for real funds)",
+    )
+    ALLOW_UNISOLATED_SANDBOX: bool = Field(
+        default=False,
+        description="Run untrusted code without Docker isolation (always allowed in mock mode; "
+        "never enable for real funds)",
+    )
+    REQUIRE_A2A_SIGNATURES: bool = Field(
+        default=False,
+        description="Reject contracts that do not carry valid buyer and worker Ed25519 signatures",
+    )
+
     # Database connection string
     DATABASE_URL: str = Field(
         default="sqlite:///./aegispay.db",
@@ -101,6 +122,16 @@ class Settings(BaseSettings):
         if self.PAYPAL_WEBHOOK_MOCK_BYPASS and not (self.is_sandbox or self.is_mock):
             raise ValueError("PAYPAL_WEBHOOK_MOCK_BYPASS is only allowed with PAYPAL_MODE=mock or sandbox")
         return self
+
+    @property
+    def allow_unbound_test_suite(self) -> bool:
+        """True when a submitter-supplied test suite may be graded (demo and test runs only)."""
+        return self.ALLOW_UNBOUND_TEST_SUITE or self.is_mock
+
+    @property
+    def allow_unisolated_sandbox(self) -> bool:
+        """True when untrusted code may run outside Docker (demo and test runs only)."""
+        return self.ALLOW_UNISOLATED_SANDBOX or self.is_mock
 
     @property
     def is_sandbox(self) -> bool:
