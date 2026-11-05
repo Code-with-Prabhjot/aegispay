@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import Background from "@/components/landing/Background";
 import Logo from "@/components/landing/Logo";
 import EscrowLedgerGrid from "@/components/EscrowLedgerGrid";
 import FsmTimeline from "@/components/FsmTimeline";
 import LedgerPanel from "@/components/LedgerPanel";
+import CodeMutationStudio from "@/components/CodeMutationStudio";
 import { API_BASE } from "@/lib/api";
 import { microsToUsd } from "@/lib/format";
 import type { ScenarioName } from "@/lib/types";
@@ -20,6 +22,7 @@ const SCENARIOS = [
 
 export default function Dashboard() {
   const a = useAegis();
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
 
   const statusClass =
     a.connection === "online" ? "up"
@@ -41,10 +44,20 @@ export default function Dashboard() {
         <div className="dash">
           <header className="dnav">
             <Link className="brand" href="/">
-              <Logo /> AegisPay <span className="tag">Dashboard</span>
+              <Logo /> AegisPay <span className="tag">Mission Control</span>
             </Link>
-            <div className="right">
+            <div className="right flex items-center gap-3">
               <span className={`status ${statusClass}`}>{statusLabel}</span>
+
+              {/* Code Mutation Studio Slide-Over Trigger */}
+              <button
+                onClick={() => setIsStudioOpen(true)}
+                className="btn sm border border-cyan-400/80 bg-cyan-950/80 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950 shadow-[0_0_15px_rgba(0,229,255,0.35)] font-semibold transition-all flex items-center gap-1.5"
+              >
+                <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00e5ff] animate-ping" />
+                ⚡ Live Mutation Studio
+              </button>
+
               {a.demoMode && (
                 <button onClick={a.disableDemo} className="btn sm ghost">
                   Try live backend
@@ -58,8 +71,23 @@ export default function Dashboard() {
 
           <main>
             <section className="intro">
-              <h1>Mission <em>control</em></h1>
-              <p>Pick a scenario. We create an agreement, lock the escrow, verify the code and settle, all against the mocked PayPal client.</p>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h1>Mission <em>control</em> Ultra</h1>
+                  <p>
+                    AG Grid Enterprise Master-Detail Financial Workstation with real-time 60fps WebSocket streaming and cryptographic Merkle proof verification.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsStudioOpen(true)}
+                  className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-slate-900/80 hover:bg-cyan-500/20 text-cyan-300 font-mono text-xs shadow-[0_0_15px_rgba(0,229,255,0.15)] flex items-center gap-2 transition-all"
+                >
+                  <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                  <span>Open Code Mutation Studio →</span>
+                </button>
+              </div>
             </section>
 
             {a.connection === "offline" && !a.demoMode && (
@@ -99,9 +127,14 @@ export default function Dashboard() {
                 }}
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h3 style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--cyan)", margin: 0 }}>
-                    Escrow Ledger
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--cyan)", margin: 0 }}>
+                      AG Grid Master-Detail Workstation
+                    </h3>
+                    <span className="text-[10px] rounded bg-cyan-950/80 border border-cyan-500/40 px-2 py-0.5 text-cyan-300 font-mono">
+                      Enterprise Hierarchical
+                    </span>
+                  </div>
                   <span className="text-xs text-slate-400 font-mono">
                     {a.contracts.length} {a.contracts.length === 1 ? "agreement" : "agreements"}
                   </span>
@@ -111,6 +144,7 @@ export default function Dashboard() {
                   contracts={a.contracts}
                   selectedId={a.selectedId}
                   onSelect={a.setSelectedId}
+                  onRefresh={a.refresh}
                 />
               </div>
 
@@ -171,6 +205,18 @@ export default function Dashboard() {
           </main>
         </div>
       </div>
+
+      {/* Slide-Over Mutation Studio */}
+      <CodeMutationStudio
+        isOpen={isStudioOpen}
+        onClose={() => setIsStudioOpen(false)}
+        selectedContract={a.selected}
+        onContractSettled={(c) => {
+          a.setSelectedId(c.agreement_id);
+          a.refresh();
+        }}
+        demoMode={a.demoMode}
+      />
     </>
   );
 }

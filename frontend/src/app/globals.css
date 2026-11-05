@@ -15,7 +15,77 @@ body {
   --ag-row-hover-color: rgba(0, 229, 255, 0.08);
   --ag-selected-row-background-color: rgba(0, 229, 255, 0.14);
   --ag-font-family: inherit;
+  --ag-value-change-value-highlight-background-color: rgba(0, 229, 255, 0.35);
+  --ag-value-change-delta-up-color: #00e5ff;
+  --ag-value-change-delta-down-color: #f43f5e;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(140, 180, 255, 0.15);
+}
+
+/* 60fps AG Grid Real-time Cell Flash Styles */
+.ag-theme-quartz-dark .ag-cell-data-changed {
+  background-color: rgba(0, 229, 255, 0.45) !important;
+  color: #00e5ff !important;
+  box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.5);
+  transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ag-theme-quartz-dark .ag-cell-data-changed-animation {
+  background-color: transparent;
+  transition: background-color 1.2s ease-out;
+}
+
+/* Security Void / Rejection Hard Red Flash */
+.ag-theme-quartz-dark .cell-void-flash.ag-cell-data-changed,
+.ag-theme-quartz-dark .ag-row[class*="state-void"] .ag-cell-data-changed,
+.ag-theme-quartz-dark .cell-state-void.ag-cell-data-changed {
+  background-color: rgba(239, 68, 68, 0.6) !important;
+  color: #fca5a5 !important;
+  box-shadow: inset 0 0 16px rgba(239, 68, 68, 0.8) !important;
+  transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Master-Detail Expansion styling */
+.ag-theme-quartz-dark .ag-details-row {
+  padding: 0 !important;
+  background: rgba(4, 9, 28, 0.95) !important;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.25) !important;
+  box-shadow: inset 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* Expand chevron icon custom color */
+.ag-theme-quartz-dark .ag-group-contracted .ag-icon,
+.ag-theme-quartz-dark .ag-group-expanded .ag-icon {
+  color: #00e5ff !important;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 20, 50, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.25);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.5);
+}
+
+/* Keyframe for glowing pulse */
+@keyframes cyber-pulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(0, 229, 255, 0.7);
+  }
+}
+
+.pulse-cyber {
+  animation: cyber-pulse 2s infinite ease-in-out;
 }

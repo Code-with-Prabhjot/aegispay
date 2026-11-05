@@ -1,12 +1,16 @@
 // Deterministic demo-data mode: used when the backend is unreachable.
 // No randomness or wall-clock reads: IDs and timestamps derive from a counter.
 import type {
+  AgreementDetailResponse,
+  AstSecurityAudit,
   DoubleEntryLedgerEntry,
   FsmState,
   FsmTransition,
+  LedgerJournalLeg,
   LedgerResponse,
   ScenarioName,
   SlaContractResponse,
+  TestAssertionItem,
 } from "./types";
 
 interface ScenarioPlan {
@@ -49,7 +53,7 @@ const PLANS: Record<ScenarioName, ScenarioPlan> = {
     ],
   },
   MALICIOUS_INJECTION: {
-    score: 0.22,
+    score: 0.0,
     captureMicros: 0,
     path: [
       "AGREEMENT_DRAFTED",
@@ -124,6 +128,244 @@ export class DemoStore {
     return this.list().find((c) => c.agreement_id === id);
   }
 
+  getDetail(id: string): AgreementDetailResponse | null {
+    const contract = this.contracts.find((c) => `demo-agr-${pad(c.seq)}` === id);
+    if (!contract) return null;
+    const base = this.toResponse(contract);
+    const plan = PLANS[contract.scenario];
+    const created = base.created_at;
+
+    // 1. Test Assertions
+    let testAssertions: TestAssertionItem[] = [];
+    if (contract.scenario === "CLEAN_PASS") {
+      testAssertions = [
+        { name: "test_01_initial_allow_within_capacity", status: "PASSED", duration_ms: 0.9, error_message: null },
+        { name: "test_02_capacity_exhaustion", status: "PASSED", duration_ms: 1.1, error_message: null },
+        { name: "test_03_client_isolation", status: "PASSED", duration_ms: 1.4, error_message: null },
+        { name: "test_04_refill_replenishes_tokens", status: "PASSED", duration_ms: 122.3, error_message: null },
+        { name: "test_05_variable_cost_deduction", status: "PASSED", duration_ms: 0.8, error_message: null },
+        { name: "test_06_excessive_cost_rejected_without_deduction", status: "PASSED", duration_ms: 0.7, error_message: null },
+        { name: "test_07_reset_single_client", status: "PASSED", duration_ms: 0.9, error_message: null },
+        { name: "test_08_reset_all_clients", status: "PASSED", duration_ms: 1.0, error_message: null },
+        { name: "test_09_get_remaining_accuracy", status: "PASSED", duration_ms: 0.8, error_message: null },
+        { name: "test_10_burst_capacity_ceiling", status: "PASSED", duration_ms: 81.5, error_message: null },
+      ];
+    } else if (contract.scenario === "PARTIAL_DEFECT") {
+      testAssertions = [
+        { name: "test_01_initial_allow_within_capacity", status: "PASSED", duration_ms: 0.9, error_message: null },
+        { name: "test_02_capacity_exhaustion", status: "PASSED", duration_ms: 1.2, error_message: null },
+        { name: "test_03_client_isolation", status: "PASSED", duration_ms: 1.3, error_message: null },
+        { name: "test_04_refill_replenishes_tokens", status: "PASSED", duration_ms: 121.8, error_message: null },
+        { name: "test_05_variable_cost_deduction", status: "PASSED", duration_ms: 0.9, error_message: null },
+        {
+          name: "test_06_excessive_cost_rejected_without_deduction",
+          status: "FAILED",
+          duration_ms: 0.8,
+          error_message: "AssertionError: assert 0 == 5 (state corrupted: tokens erroneously zeroed out on excessive cost rejection)",
+        },
+        { name: "test_07_reset_single_client", status: "PASSED", duration_ms: 0.9, error_message: null },
+        {
+          name: "test_08_reset_all_clients",
+          status: "FAILED",
+          duration_ms: 1.0,
+          error_message: "ValueError: client_id cannot be None (reset() crashes when resetting all tracked clients without argument)",
+        },
+        { name: "test_09_get_remaining_accuracy", status: "PASSED", duration_ms: 0.8, error_message: null },
+        {
+          name: "test_10_burst_capacity_ceiling",
+          status: "FAILED",
+          duration_ms: 82.1,
+          error_message: "AssertionError: assert 13.0 == 5 (unclamped burst: tokens exceeded capacity ceiling)",
+        },
+      ];
+    } else {
+      testAssertions = [
+        {
+          name: "test_ast_security_perimeter_isolation",
+          status: "FAILED",
+          duration_ms: 0.3,
+          error_message: "SecurityHardVetoError: Deliverable triggered hard AST perimeter veto: Prohibited network call detected [socket.connect(('evil.com', 80))]. Sandbox aborted.",
+        },
+        {
+          name: "test_01_execution_aborted",
+          status: "FAILED",
+          duration_ms: 0.0,
+          error_message: "Skipped: sandbox execution halted by AST security auditor",
+        },
+      ];
+    }
+
+    // 2. AST Security Audit
+    const astAudit: AstSecurityAudit =
+      contract.scenario === "MALICIOUS_INJECTION"
+        ? {
+            is_clean: false,
+            score: 0.0,
+            scanned_imports: ["socket", "subprocess", "time"],
+            blocked_calls: ["socket.socket", "socket.connect", "subprocess.Popen"],
+            nodes_count: 38,
+            flagged_reasons: [
+              "Prohibited module 'socket' detected in AST import table",
+              "Prohibited network connection vector 'socket.connect' flagged",
+              "Subprocess/shell execution vector flagged in perimeter policy",
+            ],
+          }
+        : {
+            is_clean: true,
+            score: 1.0,
+            scanned_imports: ["time", "typing"],
+            blocked_calls: [],
+            nodes_count: 54,
+            flagged_reasons: [],
+          };
+
+    // 3. Double-Entry Journal Legs (Debits == Credits)
+    const journal: LedgerJournalLeg[] = [];
+    if (contract.scenario === "CLEAN_PASS") {
+      journal.push(
+        {
+          debit_account: "paypal_escrow_hold",
+          credit_account: "buyer_vault",
+          amount_micros: 15_000_000,
+          amount_usd: "$15.00",
+          memo: "PayPal authorization hold locked for task escrow",
+          created_at: created,
+        },
+        {
+          debit_account: "worker_payable",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 14_450_000,
+          amount_usd: "$14.45",
+          memo: "Net worker deliverable settlement payout",
+          created_at: base.updated_at,
+        },
+        {
+          debit_account: "platform_fee_revenue",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 300_000,
+          amount_usd: "$0.30",
+          memo: "AegisPay protocol clearing fee (2.0%)",
+          created_at: base.updated_at,
+        },
+        {
+          debit_account: "paypal_rail_expense",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 250_000,
+          amount_usd: "$0.25",
+          memo: "PayPal Payouts API rail batch fee",
+          created_at: base.updated_at,
+        },
+      );
+    } else if (contract.scenario === "PARTIAL_DEFECT") {
+      journal.push(
+        {
+          debit_account: "paypal_escrow_hold",
+          credit_account: "buyer_vault",
+          amount_micros: 15_000_000,
+          amount_usd: "$15.00",
+          memo: "PayPal authorization hold locked for task escrow",
+          created_at: created,
+        },
+        {
+          debit_account: "buyer_vault",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 4_500_000,
+          amount_usd: "$4.50",
+          memo: "Uncaptured partial defect balance released to buyer",
+          created_at: base.updated_at,
+        },
+        {
+          debit_account: "worker_payable",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 10_040_000,
+          amount_usd: "$10.04",
+          memo: "Pro-rata worker payout (70% score prorated)",
+          created_at: base.updated_at,
+        },
+        {
+          debit_account: "platform_fee_revenue",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 210_000,
+          amount_usd: "$0.21",
+          memo: "AegisPay protocol clearing fee (2.0% on $10.50 captured)",
+          created_at: base.updated_at,
+        },
+        {
+          debit_account: "paypal_rail_expense",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 250_000,
+          amount_usd: "$0.25",
+          memo: "PayPal Payouts API rail batch fee",
+          created_at: base.updated_at,
+        },
+      );
+    } else {
+      journal.push(
+        {
+          debit_account: "paypal_escrow_hold",
+          credit_account: "buyer_vault",
+          amount_micros: 15_000_000,
+          amount_usd: "$15.00",
+          memo: "PayPal authorization hold locked for task escrow",
+          created_at: created,
+        },
+        {
+          debit_account: "buyer_vault",
+          credit_account: "paypal_escrow_hold",
+          amount_micros: 15_000_000,
+          amount_usd: "$15.00",
+          memo: "Authorization voided: AST security hard veto - 100% refunded to buyer",
+          created_at: base.updated_at,
+        },
+      );
+    }
+
+    const merkleRoot =
+      contract.scenario === "MALICIOUS_INJECTION"
+        ? "0x0000000000000000000000000000000000000000000000000000000000000000"
+        : contract.scenario === "PARTIAL_DEFECT"
+          ? "0x3a8c1f92e0789bc4671de0129f8471c26581903ba841c726359012fca459b71e"
+          : "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069";
+
+    const hashChainHead =
+      contract.scenario === "MALICIOUS_INJECTION"
+        ? "0x9999deadbeef9999deadbeef9999deadbeef9999deadbeef9999deadbeef9999"
+        : contract.scenario === "PARTIAL_DEFECT"
+          ? "0x918cb4926f04918e7c10294b291a4572ef9108c3a726194b6159203847a98bc1"
+          : "0x489b039478f4ac9b291a27e7f9189b8214df7c94b2a3c7e0b51f08e4d29381ea";
+
+    return {
+      ...base,
+      test_assertions: testAssertions,
+      ast_security_audit: astAudit,
+      ledger_journal: journal,
+      merkle_root: merkleRoot,
+      hash_chain_head: hashChainHead,
+      audit_bundle: {
+        merkle_root: merkleRoot,
+        leaf_hashes: [
+          merkleRoot.slice(0, 18),
+          hashChainHead.slice(0, 18),
+          "0x111122223333444455",
+          "0x555566667777888899",
+          "0xaaaa99998888777766",
+          "0xbbbbccccddddeeee00",
+          "0xffffeeeeccccbbbb11",
+        ],
+        leaf_names: [
+          "agreement_spec",
+          "paypal_auth_receipt",
+          "sandbox_test_run",
+          "ast_security_report",
+          "settlement_split",
+          "paypal_settlement_receipt",
+          "ledger_journal_entry",
+        ],
+        leaves: [],
+      },
+    };
+  }
+
   private toResponse(c: DemoContract): SlaContractResponse {
     const plan = PLANS[c.scenario];
     const idx = (state: FsmState) => plan.path.indexOf(state);
@@ -151,6 +393,18 @@ export class DemoStore {
       created_at: created,
       updated_at: updated,
       history: [...c.history],
+      merkle_root:
+        c.scenario === "MALICIOUS_INJECTION"
+          ? "0x0000000000000000000000000000000000000000000000000000000000000000"
+          : c.scenario === "PARTIAL_DEFECT"
+            ? "0x3a8c1f92e0789bc4671de0129f8471c26581903ba841c726359012fca459b71e"
+            : "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
+      hash_chain_head:
+        c.scenario === "MALICIOUS_INJECTION"
+          ? "0x9999deadbeef9999deadbeef9999deadbeef9999deadbeef9999deadbeef9999"
+          : c.scenario === "PARTIAL_DEFECT"
+            ? "0x918cb4926f04918e7c10294b291a4572ef9108c3a726194b6159203847a98bc1"
+            : "0x489b039478f4ac9b291a27e7f9189b8214df7c94b2a3c7e0b51f08e4d29381ea",
     };
   }
 
@@ -198,6 +452,6 @@ export class DemoStore {
       balances[e.debit_account] = (balances[e.debit_account] ?? 0) + e.amount_micros;
       balances[e.credit_account] = (balances[e.credit_account] ?? 0) - e.amount_micros;
     }
-    return { entries, balances };
+    return { entries, balances, balanced: true };
   }
 }

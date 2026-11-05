@@ -97,6 +97,8 @@ export interface SlaContractResponse {
   /** Derived by api.ts from backend `transitions`; only on detail responses. */
   history?: FsmTransition[];
   arbitration_report?: ArbitrationReport | null;
+  merkle_root?: string | null;
+  hash_chain_head?: string | null;
 }
 
 export interface SlaContractCreate {
@@ -112,6 +114,7 @@ export interface SlaContractCreate {
 export interface SubmitWork {
   source_code: string;
   test_suite: string;
+  runtime?: string;
 }
 
 export interface DoubleEntryLedgerEntry {
@@ -136,4 +139,68 @@ export interface LedgerResponse {
 export interface HealthResponse {
   status: string;
   [k: string]: unknown;
+}
+
+// ----------------------------------------------------------------------------
+// AG Grid Master-Detail & Real-Time Streaming Types
+// ----------------------------------------------------------------------------
+
+export interface TestAssertionItem {
+  name: string;
+  status: "PASSED" | "FAILED" | "PASS" | "FAIL" | string;
+  duration_ms: number;
+  error_message?: string | null;
+}
+
+export interface AstSecurityAudit {
+  is_clean: boolean;
+  scanned_imports: string[];
+  blocked_calls: string[];
+  score: number;
+  nodes_count?: number;
+  flagged_reasons?: string[];
+}
+
+export interface LedgerJournalLeg {
+  debit_account: string;
+  credit_account: string;
+  amount_micros: number;
+  amount_usd: string;
+  memo?: string;
+  created_at: string;
+}
+
+export interface AuditBundle {
+  merkle_root: string;
+  leaf_hashes: string[];
+  leaf_names: string[];
+  leaves: Record<string, unknown>[];
+}
+
+export interface AgreementDetailResponse extends SlaContractResponse {
+  test_assertions: TestAssertionItem[];
+  ast_security_audit: AstSecurityAudit;
+  ledger_journal: LedgerJournalLeg[];
+  audit_bundle?: AuditBundle | null;
+  merkle_root?: string | null;
+  hash_chain_head?: string | null;
+}
+
+export type WebSocketEventType =
+  | "INITIAL_SNAPSHOT"
+  | "FSM_TRANSITION"
+  | "ARBITER_EVALUATED"
+  | "LEDGER_TRANSACTION"
+  | "HEARTBEAT"
+  | "AUTH_LOCKED"
+  | "TEST_PASSED"
+  | "AST_CLEAN"
+  | "SETTLEMENT_SPLIT"
+  | "LEDGER_POSTED";
+
+export interface WebSocketEnvelope<T = any> {
+  event_type: WebSocketEventType | string;
+  agreement_id: string;
+  timestamp: string;
+  data: T;
 }

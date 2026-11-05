@@ -118,6 +118,7 @@ export function useAegis() {
     error,
     busy,
     setSelectedId,
+    refresh,
     run,
     enableDemo,
     disableDemo,
