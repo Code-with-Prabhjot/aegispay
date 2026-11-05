@@ -10,6 +10,7 @@ Implements:
 """
 
 from decimal import Decimal, ROUND_DOWN
+from fractions import Fraction
 import time
 from typing import Any, Dict, Optional
 import uuid
@@ -84,13 +85,12 @@ def compute_settlement_split_micros(
         capture_micros = (agreed_budget_micros // 10_000) * 10_000
         decision = "FULL_CAPTURE"
     else:
-        # Piecewise linear factor in [0.50, 0.90)
-        # Factor = 0.50 + 0.40 * ((S - 0.60) / 0.30)
-        normalized = (composite_score - 0.60) / 0.30
-        factor = 0.50 + (0.40 * normalized)
-        raw_micros = int(agreed_budget_micros * factor)
+        # Piecewise linear factor in [0.50, 0.90): 0.50 + 0.40 * ((S - 0.60) / 0.30).
+        # Exact rational arithmetic: with binary floats some amounts landed a cent low.
+        score = Fraction(Decimal(repr(composite_score)))
+        factor = Fraction(1, 2) + Fraction(2, 5) * ((score - Fraction(3, 5)) / Fraction(3, 10))
         # Round down to nearest whole cent (10,000 micros)
-        capture_micros = (raw_micros // 10_000) * 10_000
+        capture_micros = int((agreed_budget_micros * factor) // 10_000) * 10_000
         decision = "PARTIAL_CAPTURE"
 
     buyer_released_micros = agreed_budget_micros - capture_micros
