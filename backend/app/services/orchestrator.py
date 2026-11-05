@@ -406,23 +406,31 @@ class EscrowOrchestrator:
             self.repo.save_contract(c)
             self._move(c, FsmState.ARBITRATION_AUDITING, "Running test suite + AST scan + rubric")
             self.repo.save_contract(c)
+            budget_micros = c.budget_micros
 
-            try:
-                report: ArbitrationReport = await asyncio.to_thread(
-                    self.arbiter.evaluate,
-                    agreement_id=agreement_id,
-                    worker_code=source_code,
-                    buyer_test_code=test_suite,
-                    budget_micros=c.budget_micros,
-                    semantic_score=semantic_score,
-                    platform_fee_bps=self.settings.PROTOCOL_FEE_BPS,
-                    paypal_payout_fee_micros=self.settings.PAYPAL_PAYOUT_FEE_MICROS,
-                    runtime=runtime,
-                )
-            except Exception as exc:  # noqa: BLE001 - any arbiter failure must not strand the hold
-                logger.exception("Arbiter failed for %s", agreement_id)
+        # The sandbox run takes seconds. The contract is already in ARBITRATION_AUDITING, which
+        # rejects a second submission, so release the lock that webhooks and other requests wait on.
+        try:
+            report: ArbitrationReport = await asyncio.to_thread(
+                self.arbiter.evaluate,
+                agreement_id=agreement_id,
+                worker_code=source_code,
+                buyer_test_code=test_suite,
+                budget_micros=budget_micros,
+                semantic_score=semantic_score,
+                platform_fee_bps=self.settings.PROTOCOL_FEE_BPS,
+                paypal_payout_fee_micros=self.settings.PAYPAL_PAYOUT_FEE_MICROS,
+                runtime=runtime,
+            )
+        except Exception as exc:  # noqa: BLE001 - any arbiter failure must not strand the hold
+            logger.exception("Arbiter failed for %s", agreement_id)
+            async with self._lock:
+                c = self._contract_awaiting_verdict(agreement_id)
                 await self._void_after_arbiter_failure(c, exc)
                 return c
+
+        async with self._lock:
+            c = self._contract_awaiting_verdict(agreement_id)
             c.report = report.model_dump(mode="json")
             c.verification_score = report.composite_score
             if self.broadcaster:
@@ -449,6 +457,16 @@ class EscrowOrchestrator:
             else:
                 await self._capture_and_payout(c, report)
             return c
+
+    def _contract_awaiting_verdict(self, agreement_id: str) -> fsm.ContractRecord:
+        """Reload a contract after its evaluation; refuse if something settled it in the meantime."""
+        c = self.get(agreement_id)
+        if c.fsm_state != FsmState.ARBITRATION_AUDITING:
+            raise fsm.FsmError(
+                f"{agreement_id} is {c.fsm_state.value}: it changed while it was being evaluated, "
+                "so the evaluation result was discarded"
+            )
+        return c
 
     async def _void_after_arbiter_failure(self, c: fsm.ContractRecord, exc: BaseException) -> None:
         """
