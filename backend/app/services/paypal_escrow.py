@@ -185,13 +185,15 @@ class PayPalEscrowEngine:
         description: str,
         enable_vault: bool = True,
         vault_id: Optional[str] = None,
+        attempt: int = 1,
     ) -> Dict[str, Any]:
         """
         Creates a PayPal v2 Order with intent='AUTHORIZE'.
-        Uses a deterministic PayPal-Request-Id derived from agreement_id.
+        Uses a deterministic PayPal-Request-Id derived from agreement_id. `attempt` is part of the
+        key: a re-authorization must send a new one, or PayPal replays the original order.
         """
         token = await self.get_access_token()
-        req_id = derive_idempotency_key(agreement_id, "create_auth_order")
+        req_id = derive_idempotency_key(agreement_id, "create_auth_order", step=attempt)
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",

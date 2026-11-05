@@ -399,8 +399,8 @@ async def test_sweeper_reauth_and_void_near_expiry(stress_env):
     # 3. Verify Vaulted Contract Refreshed
     c_vaulted_after = repo.get_contract("agr_sweeper_vaulted_01")
     assert c_vaulted_after.fsm_state == FsmState.PAYPAL_AUTH_LOCKED
-    assert c_vaulted_after.created_at == now
-    assert c_vaulted_after.authorized_at == now
+    assert c_vaulted_after.created_at == aged_time  # creation history is never rewritten
+    assert c_vaulted_after.authorized_at == now  # only the hold's age restarts
     assert c_vaulted_after.paypal_authorization_id != old_auth_vaulted
 
     # Verify double-entry journal recorded re-authorization
@@ -681,7 +681,7 @@ async def test_sweeper_sandbox_executing_aging_contracts(stress_env):
 
     # Vaulted stays in SANDBOX_EXECUTING with renewed timestamps
     assert repo.get_contract("agr_exec_vaulted").fsm_state == FsmState.SANDBOX_EXECUTING
-    assert repo.get_contract("agr_exec_vaulted").created_at == now
+    assert repo.get_contract("agr_exec_vaulted").authorized_at == now
 
     # Non-vaulted transitions to ESCROW_VOIDED_REFUNDED
     assert repo.get_contract("agr_exec_non_vaulted").fsm_state == FsmState.ESCROW_VOIDED_REFUNDED

@@ -45,9 +45,10 @@ class MockPayPalEscrowEngine:
         description: str,
         enable_vault: bool = True,
         vault_id: Optional[str] = None,
+        attempt: int = 1,
     ) -> Dict[str, Any]:
         """Returns an order shaped like PayPal's response *after* buyer approval + authorize."""
-        key = derive_idempotency_key(agreement_id, "create_auth_order")
+        key = derive_idempotency_key(agreement_id, "create_auth_order", step=attempt)
         value = micros_to_usd_str(amount_micros)
         amount = {"currency_code": "USD", "value": value}
         order = {

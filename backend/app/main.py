@@ -204,7 +204,7 @@ def create_app(
     ledger = DoubleEntryLedgerEngine.from_repository(repository, broadcaster=broadcaster_mgr)
     orch = EscrowOrchestrator(repository, ledger, paypal, cfg, broadcaster=broadcaster_mgr)
     sweeper = ReauthorizationSweeper(
-        repository, ledger, paypal, clock=orch.clock, broadcaster=broadcaster_mgr
+        repository, ledger, paypal, clock=orch.clock, broadcaster=broadcaster_mgr, lock=orch.lock
     )
     orch.sweeper = sweeper
     app.state.repo = repository

@@ -14,11 +14,13 @@ For asynchronous, long-running agent tasks:
     and releases escrow hold back to the buyer vault.
 """
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from backend.app.db import Repository
 from backend.app.schemas import FsmState, LedgerAccount
@@ -29,9 +31,11 @@ from backend.app.services.merkle_audit import (
     compute_genesis_hash,
     compute_transition_hash,
 )
-from backend.app.services.orchestrator import extract_authorization_id
+from backend.app.services.orchestrator import SETTLEMENT_PENDING_STATES, extract_authorization_id
 
 logger = logging.getLogger(__name__)
+
+REAUTH_ACTION = "72H_REAUTHORIZATION_SWEPT"
 
 BUYER = LedgerAccount.BUYER_VAULT.value
 ESCROW = LedgerAccount.PAYPAL_ESCROW_HOLD.value
@@ -64,6 +68,7 @@ class ReauthorizationSweeper:
         broadcaster: Optional[Any] = None,
         threshold_hours: float = 70.0,
         honor_period_hours: float = 72.0,
+        lock: Optional[asyncio.Lock] = None,
     ):
         self.repo = repo
         self.ledger = ledger
@@ -72,10 +77,38 @@ class ReauthorizationSweeper:
         self.broadcaster = broadcaster
         self.threshold_hours = threshold_hours
         self.honor_period_hours = honor_period_hours
+        self.lock = lock  # the orchestrator's lock, so a sweep never races a submission
+
+    @asynccontextmanager
+    async def _guard(self) -> AsyncIterator[None]:
+        if self.lock is None:
+            yield
+        else:
+            async with self.lock:
+                yield
+
+    @staticmethod
+    def _hold_age_hours(c: fsm.ContractRecord, now: datetime) -> float:
+        """Age of the current authorization hold (reset by a re-authorization), not of the contract."""
+        return _get_age_seconds(c.authorized_at or c.created_at, now) / 3600.0
 
     def _get_active_contracts(self) -> List[fsm.ContractRecord]:
         all_contracts = self.repo.list_contracts(limit=1000)
         return [c for c in all_contracts if c.fsm_state in ACTIVE_STATES]
+
+    def _get_stranded_contracts(self) -> List[fsm.ContractRecord]:
+        """Contracts with a settlement decision PayPal never confirmed (see retry_settlement)."""
+        return [c for c in self.repo.list_contracts(limit=1000) if c.fsm_state in SETTLEMENT_PENDING_STATES]
+
+    def _renewal_count(self, c: fsm.ContractRecord) -> int:
+        count = 0
+        for entry in self.repo.get_hash_chain(c.agreement_id):
+            try:
+                if json.loads(entry.get("payload_json") or "{}").get("action") == REAUTH_ACTION:
+                    count += 1
+            except ValueError:
+                continue
+        return count
 
     def get_status(self, now: Optional[datetime] = None) -> Dict[str, Any]:
         """
@@ -95,7 +128,7 @@ class ReauthorizationSweeper:
 
         if active:
             for c in active:
-                age_h = _get_age_seconds(c.created_at or c.authorized_at, now) / 3600.0
+                age_h = self._hold_age_hours(c, now)
                 if oldest_age_hours is None or age_h > oldest_age_hours:
                     oldest_age_hours = round(age_h, 2)
                     oldest_agreement_id = c.agreement_id
@@ -103,8 +136,11 @@ class ReauthorizationSweeper:
                     near_expiry_count += 1
 
         is_solvent = self.ledger.verify_balance_conservation()
+        stranded = [c.agreement_id for c in self._get_stranded_contracts()]
 
         return {
+            "stranded_settlement_count": len(stranded),
+            "stranded_settlements": stranded,
             "active_authorizations_count": len(active),
             "total_locked_volume_micros": total_locked_micros,
             "total_locked_volume_usd": f"${Decimal(total_locked_micros) / Decimal(1_000_000):.2f}",
@@ -130,27 +166,33 @@ class ReauthorizationSweeper:
             gracefully voids via PayPal API, transitions FSM to ESCROW_VOIDED_REFUNDED,
             releases hold back to buyer vault, and finalizes audit chain & Merkle proof.
         """
+        async with self._guard():
+            return await self._sweep_locked(now, threshold_hours)
+
+    async def _sweep_locked(
+        self, now: Optional[datetime], threshold_hours: Optional[float]
+    ) -> Dict[str, Any]:
         now = now or self.clock()
         threshold = threshold_hours if threshold_hours is not None else self.threshold_hours
         active = self._get_active_contracts()
 
         candidates: List[fsm.ContractRecord] = []
         for c in active:
-            age_h = _get_age_seconds(c.created_at or c.authorized_at, now) / 3600.0
-            if age_h >= threshold:
+            if self._hold_age_hours(c, now) >= threshold:
                 candidates.append(c)
 
         refreshed_agreements: List[str] = []
         voided_agreements: List[str] = []
+        failed_agreements: List[str] = []
 
         for c in candidates:
             vault_token = getattr(c, "payment_token", None) or c.vault_id
             if vault_token:
-                await self._refresh_vaulted_contract(c, vault_token, now)
-                refreshed_agreements.append(c.agreement_id)
+                ok = await self._refresh_vaulted_contract(c, vault_token, now)
+                (refreshed_agreements if ok else failed_agreements).append(c.agreement_id)
             else:
-                await self._void_expired_contract(c, now)
-                voided_agreements.append(c.agreement_id)
+                ok = await self._void_expired_contract(c, now)
+                (voided_agreements if ok else failed_agreements).append(c.agreement_id)
 
         is_solvent = self.ledger.verify_balance_conservation()
         remaining_active = self._get_active_contracts()
@@ -163,6 +205,8 @@ class ReauthorizationSweeper:
             "refreshed_agreements": refreshed_agreements,
             "voided_count": len(voided_agreements),
             "voided_agreements": voided_agreements,
+            "failed_count": len(failed_agreements),
+            "failed_agreements": failed_agreements,
             "solvency_status": "SOLVENT" if is_solvent else "INSOLVENT",
             "solvency": is_solvent,
             "balanced": is_solvent,
@@ -180,10 +224,14 @@ class ReauthorizationSweeper:
 
     async def _refresh_vaulted_contract(
         self, c: fsm.ContractRecord, vault_token: str, now: datetime
-    ) -> None:
+    ) -> bool:
         """
         Refreshes an aging authorization hold using PayPal Vaulting v3 token.
         Preserves strict double-entry balance conservation and appends to cryptographic audit chain.
+
+        The old hold is only released after a new, real authorization exists. If neither
+        reauthorization nor a fresh order yields one, the contract is left exactly as it was
+        (still held, still capturable) and False is returned so the caller reports the failure.
         """
         old_auth_id = c.paypal_authorization_id
         new_auth_id = None
@@ -199,21 +247,34 @@ class ReauthorizationSweeper:
 
         if not new_auth_id:
             try:
-                if old_auth_id:
+                order = await self.engine.create_escrow_authorization_order(
+                    c.agreement_id,
+                    c.budget_micros,
+                    c.task_description,
+                    vault_id=vault_token,
+                    attempt=self._renewal_count(c) + 2,  # attempt 1 was the original order
+                )
+            except Exception as exc:
+                logger.warning(f"Fresh authorization order failed for {c.agreement_id}: {exc}; old hold kept")
+                return False
+            new_auth_id = extract_authorization_id(order)
+            if not new_auth_id:
+                logger.warning(
+                    f"Fresh order for {c.agreement_id} carries no authorization (buyer approval is "
+                    "needed); old hold kept"
+                )
+                return False
+            if old_auth_id and old_auth_id != new_auth_id:
+                try:
                     await self.engine.void_authorization(c.agreement_id, old_auth_id)
-            except Exception:
-                pass
-            order = await self.engine.create_escrow_authorization_order(
-                c.agreement_id,
-                c.budget_micros,
-                c.task_description,
-                vault_id=vault_token,
-            )
-            new_auth_id = extract_authorization_id(order) or f"AUTH-RENEW-{c.agreement_id}"
+                except Exception as exc:
+                    logger.warning(
+                        f"Superseded hold {old_auth_id} for {c.agreement_id} could not be voided "
+                        f"({exc}); it will lapse on its own"
+                    )
 
         c.paypal_authorization_id = new_auth_id
-        c.authorized_at = now
-        c.created_at = now
+        c.authorized_at = now  # the hold's age restarts; created_at is history and stays put
         c.updated_at = now
 
         # Record re-authorization transaction in the double-entry journal
@@ -237,7 +298,7 @@ class ReauthorizationSweeper:
         # Record in cryptographic audit hash chain
         prev_hash = c.hash_chain_head or compute_genesis_hash(c.agreement_id)
         payload_dict = {
-            "action": "72H_REAUTHORIZATION_SWEPT",
+            "action": REAUTH_ACTION,
             "reason": "PayPal 72h honor period extension via vaulted payment token",
             "old_authorization_id": old_auth_id,
             "new_authorization_id": new_auth_id,
@@ -281,17 +342,22 @@ class ReauthorizationSweeper:
                     "budget_micros": c.budget_micros,
                 },
             })
+        return True
 
-    async def _void_expired_contract(self, c: fsm.ContractRecord, now: datetime) -> None:
+    async def _void_expired_contract(self, c: fsm.ContractRecord, now: datetime) -> bool:
         """
-        Gracefully voids unrefreshable authorization hold and releases escrow back to buyer vault.
+        Voids an unrefreshable authorization hold and releases escrow back to the buyer vault.
+
+        PayPal must confirm the void first. If it doesn't, the contract is left untouched (the ledger
+        must not say "refunded" while PayPal still holds the money) and False is returned.
         """
         old_auth_id = c.paypal_authorization_id
         if old_auth_id:
             try:
                 await self.engine.void_authorization(c.agreement_id, old_auth_id)
             except Exception as exc:
-                logger.warning(f"Graceful PayPal void failed for {c.agreement_id}: {exc}")
+                logger.warning(f"PayPal void failed for {c.agreement_id}: {exc}; contract left as is")
+                return False
 
         prev_state = c.fsm_state
         fsm.transition(
@@ -353,6 +419,7 @@ class ReauthorizationSweeper:
                     "contract": c.to_response().model_dump(mode="json"),
                 },
             })
+        return True
 
 
 Sweeper = ReauthorizationSweeper

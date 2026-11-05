@@ -121,6 +121,11 @@ class EscrowOrchestrator:
         """Sets or updates the real-time event broadcaster."""
         self.broadcaster = broadcaster
 
+    @property
+    def lock(self) -> asyncio.Lock:
+        """The lock serialising state-changing flows; the sweeper shares it."""
+        return self._lock
+
     # ------------------------------------------------------------------ helpers
     def get(self, agreement_id: str) -> fsm.ContractRecord:
         c = self.repo.get_contract(agreement_id)
