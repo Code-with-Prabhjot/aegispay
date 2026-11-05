@@ -1,173 +1,102 @@
 """
 tests/test_paypal_crypto_webhooks.py
-Unit and cryptographic verification test suite for backend.app.services.paypal_webhooks.
+Request-level webhook checks in backend.app.services.paypal_webhooks.
 
-Verifies:
-1. Missing or empty required headers are rejected.
-2. Cert URL domain validation (*.paypal.com only, HTTPS required).
-3. Deterministic HMAC/SHA-256 calculation and verification in mock/test mode.
-4. Tampered signatures are strictly rejected.
-5. Webhook event dispatchers:
-   - PAYMENT.AUTHORIZATION.CREATED
-   - PAYMENT.CAPTURE.COMPLETED
-   - PAYMENT.AUTHORIZATION.VOIDED
+Event handling is covered in tests/test_webhooks.py; PayPal's real signature check is a call to its
+verify-webhook-signature endpoint (also covered there).
 """
 
+import base64
+import hashlib
+import hmac
 import json
-from datetime import datetime, timezone
+
 import pytest
 
-from backend.app.db import Repository
-from backend.app.schemas import FsmState
-from backend.app.services import fsm
-from backend.app.services.ledger_service import DoubleEntryLedgerEngine
-from backend.app.services.orchestrator import EscrowOrchestrator
-from backend.app.services.paypal_mock import MockPayPalEscrowEngine
+from backend.app.services import paypal_webhooks
 from backend.app.services.paypal_webhooks import (
     DEFAULT_MOCK_SECRET,
-    PayPalWebhookDispatcher,
+    REQUIRED_WEBHOOK_HEADERS,
+    check_webhook_headers,
     compute_deterministic_hmac,
     validate_cert_url,
-    verify_paypal_webhook_signature,
+    verify_mock_webhook_signature,
 )
 
-
-def test_validate_cert_url():
-    # Valid paypal domains
-    assert validate_cert_url("https://api.sandbox.paypal.com/cert") is True
-    assert validate_cert_url("https://api.paypal.com/cert") is True
-    assert validate_cert_url("https://notify.paypal.com/cert") is True
-    assert validate_cert_url("https://paypal.com/cert") is True
-
-    # Insecure or spoofed domains
-    assert validate_cert_url("http://api.paypal.com/cert") is False
-    assert validate_cert_url("https://evil-paypal.com/cert") is False
-    assert validate_cert_url("https://paypal.com.attacker.com/cert") is False
-    assert validate_cert_url("https://notpaypal.com/cert") is False
-    assert validate_cert_url("") is False
+BODY = b'{"id": "WH-1", "event_type": "PAYMENT.CAPTURE.COMPLETED"}'
 
 
-def test_verify_signature_missing_headers():
-    body = b'{"id": "WH-1", "event_type": "PAYMENT.CAPTURE.COMPLETED"}'
-    valid_headers = {
+def headers(**over):
+    base = {
         "PAYPAL-AUTH-ALGO": "SHA256withRSA",
         "PAYPAL-TRANSMISSION-ID": "tx-123",
         "PAYPAL-CERT-URL": "https://api.sandbox.paypal.com/cert",
-        "PAYPAL-TRANSMISSION-SIG": "mock_valid_signature",
+        "PAYPAL-TRANSMISSION-SIG": "anything",
         "PAYPAL-TRANSMISSION-TIME": "2026-11-05T00:00:00Z",
     }
+    base.update(over)
+    return base
 
-    # All headers present
-    assert verify_paypal_webhook_signature(valid_headers, body) is True
 
-    # Missing each required header
-    for key in list(valid_headers.keys()):
-        broken = dict(valid_headers)
+def test_validate_cert_url():
+    for good in ("https://api.sandbox.paypal.com/cert", "https://api.paypal.com/cert",
+                 "https://notify.paypal.com/cert", "https://paypal.com/cert"):
+        assert validate_cert_url(good) is True
+    for bad in ("http://api.paypal.com/cert", "https://evil-paypal.com/cert",
+                "https://paypal.com.attacker.com/cert", "https://notpaypal.com/cert",
+                "https://api.paypal.com@evil.example/cert", "ftp://api.paypal.com/cert", ""):
+        assert validate_cert_url(bad) is False, bad
+
+
+def test_check_webhook_headers_requires_all_five_and_a_paypal_cert_host():
+    assert check_webhook_headers(headers()) is True
+    assert check_webhook_headers({k.lower(): v for k, v in headers().items()}) is True
+    for key in REQUIRED_WEBHOOK_HEADERS:
+        broken = headers()
         del broken[key]
-        assert verify_paypal_webhook_signature(broken, body) is False
+        assert check_webhook_headers(broken) is False, key
+        assert check_webhook_headers(headers(**{key: ""})) is False, key
+    assert check_webhook_headers(headers(**{"PAYPAL-CERT-URL": "https://evil.example/cert"})) is False
 
 
-def test_verify_signature_deterministic_hmac():
-    body = json.dumps({"id": "WH-SEC", "event_type": "PAYMENT.CAPTURE.COMPLETED"}).encode("utf-8")
+def test_the_header_check_does_not_pretend_to_verify_a_signature():
+    # Any signature value passes the pre-check; authenticity is PayPal's call to make.
+    assert check_webhook_headers(headers(**{"PAYPAL-TRANSMISSION-SIG": "forged"})) is True
+    assert not hasattr(paypal_webhooks, "verify_paypal_webhook_signature")
+    assert not hasattr(paypal_webhooks, "PayPalWebhookDispatcher")
+
+
+def test_mock_hmac_signature_round_trip():
     secret = "test_fintech_secret_2026"
-    headers = {
-        "PAYPAL-AUTH-ALGO": "HMAC-SHA256",
-        "PAYPAL-TRANSMISSION-ID": "tx-deterministic-999",
-        "PAYPAL-CERT-URL": "https://api.paypal.com/cert",
-        "PAYPAL-TRANSMISSION-TIME": "2026-11-05T12:00:00Z",
-    }
+    h = headers(**{"PAYPAL-AUTH-ALGO": "HMAC-SHA256"})
+    h["PAYPAL-TRANSMISSION-SIG"] = compute_deterministic_hmac(h, BODY, secret=secret)
 
-    # Compute valid signature
-    valid_sig = compute_deterministic_hmac(headers, body, secret=secret)
-    headers["PAYPAL-TRANSMISSION-SIG"] = valid_sig
+    assert verify_mock_webhook_signature(h, BODY, secret=secret) is True
+    assert verify_mock_webhook_signature(h, BODY, secret="wrong_secret") is False
+    assert verify_mock_webhook_signature(h, BODY + b"tampered", secret=secret) is False
 
-    # Assert verification succeeds with matching secret
-    assert verify_paypal_webhook_signature(headers, body, secret=secret, mock_mode=True) is True
-
-    # Assert verification fails with wrong secret or tampered body
-    assert verify_paypal_webhook_signature(headers, body, secret="wrong_secret", mock_mode=True) is False
-    assert verify_paypal_webhook_signature(headers, body + b"tampered", secret=secret, mock_mode=True) is False
-
-    # Assert verification fails with explicitly bad signature
-    headers["PAYPAL-TRANSMISSION-SIG"] = "bad_signature"
-    assert verify_paypal_webhook_signature(headers, body, secret=secret, mock_mode=True) is False
+    msg = b"tx-123|2026-11-05T00:00:00Z|" + BODY
+    b64 = base64.b64encode(hmac.new(secret.encode(), msg, hashlib.sha256).digest()).decode()
+    assert verify_mock_webhook_signature({**h, "PAYPAL-TRANSMISSION-SIG": b64}, BODY, secret=secret) is True
 
 
-@pytest.mark.asyncio
-async def test_dispatcher_authorization_created(tmp_path):
-    repo = Repository.from_url(f"sqlite:///{tmp_path}/disp_auth.db")
-    ledger = DoubleEntryLedgerEngine(repository=repo)
-    engine = MockPayPalEscrowEngine()
-    orch = EscrowOrchestrator(repo=repo, ledger=ledger, engine=engine)
-    dispatcher = PayPalWebhookDispatcher(orch)
-
-    aid = "agr_disp_auth"
-    now = datetime.now(timezone.utc)
-    c = fsm.ContractRecord(
-        agreement_id=aid,
-        buyer_agent_id="b",
-        worker_agent_id="w",
-        worker_paypal_email="w@example.com",
-        budget_micros=10_000_000,
-        task_description="Test task",
-        timeout_seconds=3600,
-        fsm_state=FsmState.AGREEMENT_DRAFTED,
-        created_at=now,
-        updated_at=now,
-    )
-    repo.save_contract(c)
-    ledger.deposit("buyer_vault", 10_000_000, aid, "seed deposit")
-
-    event = {
-        "id": "WH-EV-AUTH",
-        "event_type": "PAYMENT.AUTHORIZATION.CREATED",
-        "resource": {"id": "AUTH-DISP-1", "custom_id": aid},
-    }
-
-    res = await dispatcher.dispatch(event)
-    assert res["status"] == "processed"
-    assert res["agreement_id"] == aid
-
-    updated = orch.get(aid)
-    assert updated.fsm_state == FsmState.PAYPAL_AUTH_LOCKED
-    assert updated.paypal_authorization_id == "AUTH-DISP-1"
+@pytest.mark.parametrize("magic", ["sig", "valid_mock_sig", "mock_valid_signature", "mock_valid_anything",
+                                   "bad_signature", "invalid", "tampered", ""])
+def test_no_magic_signature_strings_are_accepted(magic):
+    assert verify_mock_webhook_signature(headers(**{"PAYPAL-TRANSMISSION-SIG": magic}), BODY) is False
 
 
-@pytest.mark.asyncio
-async def test_dispatcher_authorization_voided(tmp_path):
-    repo = Repository.from_url(f"sqlite:///{tmp_path}/disp_void.db")
-    ledger = DoubleEntryLedgerEngine(repository=repo)
-    engine = MockPayPalEscrowEngine()
-    orch = EscrowOrchestrator(repo=repo, ledger=ledger, engine=engine)
-    dispatcher = PayPalWebhookDispatcher(orch)
+def test_mock_signature_also_requires_valid_headers():
+    h = headers()
+    h["PAYPAL-TRANSMISSION-SIG"] = compute_deterministic_hmac(h, BODY)
+    assert verify_mock_webhook_signature(h, BODY) is True
+    h["PAYPAL-CERT-URL"] = "https://evil.example/cert"
+    assert verify_mock_webhook_signature(h, BODY) is False
 
-    aid = "agr_disp_void"
-    now = datetime.now(timezone.utc)
-    c = fsm.ContractRecord(
-        agreement_id=aid,
-        buyer_agent_id="b",
-        worker_agent_id="w",
-        worker_paypal_email="w@example.com",
-        budget_micros=10_000_000,
-        task_description="Test task",
-        timeout_seconds=3600,
-        fsm_state=FsmState.VOID_PENDING,
-        paypal_authorization_id="AUTH-DISP-VOID",
-        authorized_at=now,
-        created_at=now,
-        updated_at=now,
-    )
-    repo.save_contract(c)
-    ledger.deposit("buyer_vault", 10_000_000, aid, "seed")
-    ledger.record_transfer("paypal_escrow_hold", "buyer_vault", 10_000_000, aid, "seed hold")
 
-    event = {
-        "id": "WH-EV-VOID",
-        "event_type": "PAYMENT.AUTHORIZATION.VOIDED",
-        "resource": {"id": "AUTH-DISP-VOID", "custom_id": aid},
-    }
-
-    res = await dispatcher.dispatch(event)
-    assert res["status"] == "processed"
-    updated = orch.get(aid)
-    assert updated.fsm_state == FsmState.ESCROW_VOIDED_REFUNDED
+def test_default_secret_signs_when_none_is_given():
+    h = headers()
+    body = json.dumps({"id": "WH-SEC"}).encode()
+    h["PAYPAL-TRANSMISSION-SIG"] = compute_deterministic_hmac(h, body)
+    assert compute_deterministic_hmac(h, body) == compute_deterministic_hmac(h, body, DEFAULT_MOCK_SECRET)
+    assert verify_mock_webhook_signature(h, body) is True
