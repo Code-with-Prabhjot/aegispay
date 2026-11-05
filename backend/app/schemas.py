@@ -217,6 +217,12 @@ class SlaContractCreate(BaseModel):
         default=None,
         description="Optional PayPal Vault payment token for pre-authorized autonomous task billing",
     )
+    test_suite: Optional[str] = Field(
+        default=None,
+        max_length=200_000,
+        description="Buyer's acceptance test suite. Fixed at creation; the worker's submission is graded "
+        "against exactly this suite.",
+    )
     buyer_signature: Optional[str] = Field(
         default=None,
         description="Optional Ed25519 signature from buyer agent",
@@ -266,6 +272,9 @@ class SlaContractResponse(BaseModel):
     merkle_root: Optional[str] = Field(default=None, description="7-leaf Merkle root hash upon settlement")
     buyer_signature: Optional[str] = Field(default=None, description="Buyer Ed25519 signature")
     worker_signature: Optional[str] = Field(default=None, description="Worker Ed25519 signature")
+    test_suite_sha256: Optional[str] = Field(
+        default=None, description="SHA-256 of the buyer's committed acceptance test suite"
+    )
 
     @model_validator(mode="after")
     def set_budget_usd(self) -> "SlaContractResponse":

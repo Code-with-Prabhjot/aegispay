@@ -744,6 +744,12 @@ components:
           - type: 'null'
           title: Worker Signature
           description: Worker Ed25519 signature
+        test_suite_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Test Suite Sha256
+          description: SHA-256 of the buyer's committed acceptance test suite
         test_assertions:
           items:
             $ref: '#/components/schemas/TestAssertionItem'
@@ -1002,6 +1008,14 @@ components:
           title: Vault Id
           description: Optional PayPal Vault payment token for pre-authorized autonomous
             task billing
+        test_suite:
+          anyOf:
+          - type: string
+            maxLength: 200000
+          - type: 'null'
+          title: Test Suite
+          description: Buyer's acceptance test suite. Fixed at creation; the worker's
+            submission is graded against exactly this suite.
         buyer_signature:
           anyOf:
           - type: string
@@ -1044,10 +1058,14 @@ components:
           minLength: 1
           title: Source Code
         test_suite:
-          type: string
-          maxLength: 200000
-          minLength: 1
+          anyOf:
+          - type: string
+            maxLength: 200000
+            minLength: 1
+          - type: 'null'
           title: Test Suite
+          description: Optional. Must match the suite committed in the agreement;
+            only used (mock mode) when the agreement has none.
         runtime:
           anyOf:
           - type: string
@@ -1061,11 +1079,11 @@ components:
             minimum: 0.0
           - type: 'null'
           title: Semantic Score
-          description: Optional override for semantic score [0.0, 1.0]
+          description: Demo-only override for the semantic score; refused outside
+            mock mode
       type: object
       required:
       - source_code
-      - test_suite
       title: SubmitWork
     SweeperRunParams:
       properties:

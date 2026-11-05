@@ -101,6 +101,8 @@ class Database:
                 "merkle_root VARCHAR(64)",
                 "buyer_signature TEXT",
                 "worker_signature TEXT",
+                "test_suite TEXT",
+                "test_suite_sha256 VARCHAR(64)",
             ):
                 try:
                     self._conn.execute(f"ALTER TABLE contracts ADD COLUMN {col}")
@@ -182,8 +184,8 @@ class Repository:
                     fsm_state, paypal_order_id, paypal_authorization_id, paypal_capture_id,
                     paypal_payout_batch_id, verification_score, authorized_at, report_json,
                     created_at, updated_at, vault_id, hash_chain_head, merkle_root,
-                    buyer_signature, worker_signature)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    buyer_signature, worker_signature, test_suite, test_suite_sha256)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (agreement_id) DO UPDATE SET
                     fsm_state = excluded.fsm_state,
                     paypal_order_id = excluded.paypal_order_id,
@@ -199,7 +201,9 @@ class Repository:
                     hash_chain_head = excluded.hash_chain_head,
                     merkle_root = excluded.merkle_root,
                     buyer_signature = excluded.buyer_signature,
-                    worker_signature = excluded.worker_signature
+                    worker_signature = excluded.worker_signature,
+                    test_suite = excluded.test_suite,
+                    test_suite_sha256 = excluded.test_suite_sha256
                 """,
                 (
                     c.agreement_id, c.buyer_agent_id, c.worker_agent_id, c.worker_paypal_email,
@@ -210,6 +214,7 @@ class Repository:
                     _iso(c.created_at), _iso(c.updated_at), getattr(c, "vault_id", None),
                     getattr(c, "hash_chain_head", None), getattr(c, "merkle_root", None),
                     getattr(c, "buyer_signature", None), getattr(c, "worker_signature", None),
+                    getattr(c, "test_suite", None), getattr(c, "test_suite_sha256", None),
                 ),
             )
             persisted = self.db.query(
@@ -274,6 +279,8 @@ class Repository:
             merkle_root=_get_val("merkle_root"),
             buyer_signature=_get_val("buyer_signature"),
             worker_signature=_get_val("worker_signature"),
+            test_suite=_get_val("test_suite"),
+            test_suite_sha256=_get_val("test_suite_sha256"),
         )
 
     def get_contract(self, agreement_id: str) -> Optional[ContractRecord]:

@@ -123,6 +123,8 @@ class ContractRecord:
     merkle_root: Optional[str] = None
     buyer_signature: Optional[str] = None
     worker_signature: Optional[str] = None
+    test_suite: Optional[str] = None
+    test_suite_sha256: Optional[str] = None
 
     def to_response(self) -> SlaContractResponse:
         return SlaContractResponse(
@@ -146,6 +148,7 @@ class ContractRecord:
             merkle_root=self.merkle_root,
             buyer_signature=self.buyer_signature,
             worker_signature=self.worker_signature,
+            test_suite_sha256=self.test_suite_sha256,
         )
 
 

@@ -40,6 +40,10 @@
           "vault_id": {
             "type": "string",
             "description": "Optional PayPal Vault payment method token for autonomous pre-authorized billing"
+          },
+          "test_suite": {
+            "type": "string",
+            "description": "Buyer acceptance test suite (pytest or node:test format). Committed at creation and the only suite the worker's deliverable is graded against. Required outside mock mode."
           }
         },
         "required": [
@@ -67,13 +71,12 @@
           },
           "test_suite": {
             "type": "string",
-            "description": "Buyer validation unit test suite (pytest format)"
+            "description": "Optional. Ignored unless identical to the suite committed in the agreement; only accepted at all in mock mode when the agreement has no committed suite."
           }
         },
         "required": [
           "agreement_id",
-          "source_code",
-          "test_suite"
+          "source_code"
         ]
       }
     },

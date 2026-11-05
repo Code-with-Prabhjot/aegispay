@@ -5,6 +5,7 @@ Every state change goes through fsm.transition() and is persisted with its histo
 """
 
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -60,6 +61,14 @@ class NotFoundError(Exception):
 
 class UpstreamError(Exception):
     """PayPal (or mock) call failed."""
+
+
+class PolicyViolationError(fsm.FsmError):
+    """The request is refused by a trust policy (test-suite binding, sandbox isolation)."""
+
+
+def sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def extract_authorization_id(order: Dict[str, Any]) -> Optional[str]:
@@ -189,6 +198,8 @@ class EscrowOrchestrator:
                 hash_chain_head=genesis_hash,
                 buyer_signature=getattr(payload, "buyer_signature", None),
                 worker_signature=getattr(payload, "worker_signature", None),
+                test_suite=payload.test_suite,
+                test_suite_sha256=sha256_hex(payload.test_suite) if payload.test_suite else None,
             )
             c.transitions.append(
                 fsm.TransitionRecord(agreement_id, None, FsmState.AGREEMENT_DRAFTED,
@@ -260,17 +271,39 @@ class EscrowOrchestrator:
             self.repo.save_contract(c)
 
     # ------------------------------------------------------------------- submit
+    def _resolve_test_suite(self, c: fsm.ContractRecord, supplied: Optional[str]) -> str:
+        """
+        The suite a deliverable is graded against is fixed by the agreement. A submitter may only
+        repeat it. Without a committed suite, a supplied one is graded in demo/test runs only.
+        """
+        if c.test_suite:
+            if supplied is not None and sha256_hex(supplied) != c.test_suite_sha256:
+                raise PolicyViolationError(
+                    "The test suite is fixed by the agreement; the submitted suite does not match it"
+                )
+            return c.test_suite
+        if not self.settings.allow_unbound_test_suite:
+            raise PolicyViolationError(
+                "This agreement has no committed test suite; the buyer must supply one at creation"
+            )
+        if not supplied:
+            raise PolicyViolationError("A test suite is required")
+        return supplied
+
     async def submit_work(
         self,
         agreement_id: str,
         source_code: str,
-        test_suite: str,
+        test_suite: Optional[str] = None,
         semantic_score: Optional[float] = None,
         runtime: Optional[str] = None,
     ) -> fsm.ContractRecord:
         """Worker delivery -> sandbox -> arbitration -> capture/void -> payout dispatch."""
         async with self._lock:
             c = self.get(agreement_id)
+            if semantic_score is not None and not self.settings.is_mock:
+                raise PolicyViolationError("semantic_score overrides are only accepted in mock mode")
+            test_suite = self._resolve_test_suite(c, test_suite)
             try:
                 self._move(c, FsmState.SANDBOX_EXECUTING, "Worker deliverable submitted")
             except fsm.AuthorizationExpiredError:
@@ -559,8 +592,9 @@ class EscrowOrchestrator:
             worker_paypal_email=self.settings.WORKER_SANDBOX_EMAIL,
             budget_micros=scenario.budget_micros,
             task_description=scenario.title + " - " + scenario.description,
+            test_suite=scenario.buyer_test_code,
         ))
-        c = await self.submit_work(c.agreement_id, scenario.worker_code, scenario.buyer_test_code,
+        c = await self.submit_work(c.agreement_id, scenario.worker_code,
                                    semantic_score=scenario.semantic_score)
         if c.fsm_state == FsmState.PAYOUT_DISPATCHED and c.paypal_payout_batch_id:
             await self.handle_webhook(self.build_payout_event(c.paypal_payout_batch_id, payout_outcome))

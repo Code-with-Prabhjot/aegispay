@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS contracts (
     hash_chain_head         VARCHAR(64),
     merkle_root             VARCHAR(64),
     buyer_signature         TEXT,
-    worker_signature        TEXT
+    worker_signature        TEXT,
+    test_suite              TEXT,
+    test_suite_sha256       VARCHAR(64)
 );
 
 CREATE TABLE IF NOT EXISTS audit_hash_chain (

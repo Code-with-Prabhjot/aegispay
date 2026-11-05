@@ -53,6 +53,7 @@ from backend.app.services.merkle_audit import (
 from backend.app.services.orchestrator import (
     EscrowOrchestrator,
     NotFoundError,
+    PolicyViolationError,
     UpstreamError,
 )
 from backend.app.services.paypal_mock import get_paypal_engine
@@ -67,9 +68,18 @@ from backend.app.services.vault_service import (
 
 class SubmitWork(BaseModel):
     source_code: str = Field(..., min_length=1, max_length=200_000)
-    test_suite: str = Field(..., min_length=1, max_length=200_000)
+    test_suite: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=200_000,
+        description="Optional. Must match the suite committed in the agreement; only used (mock mode) "
+        "when the agreement has none.",
+    )
     runtime: Optional[str] = Field(default=None, description="Execution runtime: python | typescript | javascript")
-    semantic_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Optional override for semantic score [0.0, 1.0]")
+    semantic_score: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Demo-only override for the semantic score; refused outside mock mode",
+    )
 
 
 class SweeperRunParams(BaseModel):
@@ -203,6 +213,8 @@ def create_app(
     def _handle(exc: Exception) -> HTTPException:
         if isinstance(exc, NotFoundError):
             return HTTPException(404, f"Not found: {exc}")
+        if isinstance(exc, PolicyViolationError):
+            return HTTPException(403, str(exc))
         if isinstance(exc, fsm.AuthorizationExpiredError):
             return HTTPException(409, str(exc))
         if isinstance(exc, fsm.FsmError):
@@ -526,7 +538,7 @@ def create_app(
                 contract = await orch.submit_work(
                     agreement_id=call.arguments["agreement_id"],
                     source_code=call.arguments["source_code"],
-                    test_suite=call.arguments["test_suite"],
+                    test_suite=call.arguments.get("test_suite"),
                     runtime=call.arguments.get("runtime"),
                 )
                 return {"result": contract_detail(contract)}
