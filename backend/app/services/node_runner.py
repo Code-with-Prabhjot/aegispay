@@ -50,6 +50,11 @@ class JsSecurityScanner:
         "tls",
         "process",
         "vm",
+        "inspector",
+        "v8",
+        "repl",
+        "wasi",
+        "module",
     }
 
     DISALLOWED_CALL_PATTERNS = [
@@ -57,6 +62,13 @@ class JsSecurityScanner:
         (r"\bFunction\s*\(", "Forbidden constructor: 'Function()'"),
         (r"\bnew\s+Function\s*\(", "Forbidden constructor: 'new Function()'"),
         (r"\bprocess\s*\.\s*(?:exit|kill|abort)\s*\(", "Forbidden call: process termination / control"),
+        # Ways around the literal-module check
+        (r"\bimport\s*\(", "Forbidden dynamic import()"),
+        (r"\brequire\s*\(\s*(?!['\"][^'\"\n]*['\"]\s*\))", "Forbidden require() with a non-literal argument"),
+        (r"\brequire\b(?!\s*\()", "Forbidden use of 'require' as a value"),
+        (r"\bprocess\s*[.\[]", "Forbidden access to the 'process' object"),
+        (r"\bglobalThis\b|\bglobal\s*[.\[]", "Forbidden access to the global object"),
+        (r"\.\s*constructor\s*\.\s*constructor|\[\s*['\"]constructor['\"]\s*\]", "Forbidden constructor-chain escape"),
     ]
 
     def __init__(self) -> None:
@@ -92,8 +104,14 @@ class JsSecurityScanner:
 class NodeCodeRunner:
     """
     Executes untrusted worker JS/TS deliverables against buyer test suites in an
-    isolated, ephemeral directory with hard timeouts and scrubbed environments.
+    ephemeral directory with hard timeouts and scrubbed environments.
+
+    This is NOT a security boundary: Node runs as the server's user with the host's filesystem and
+    network, and the scanner is a regex denylist. `isolated` is False so the orchestrator refuses
+    to use it for real funds.
     """
+
+    isolated = False
 
     def __init__(
         self,

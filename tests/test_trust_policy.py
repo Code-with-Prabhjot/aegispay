@@ -7,10 +7,17 @@ from backend.app.config import Settings
 from backend.app.db import Repository
 from backend.app.main import create_app
 from backend.app.schemas import ArbitrationReport, FsmState, SlaContractCreate
+from backend.app.services.arbitration_engine import (
+    ArbitrationArbiter,
+    CodeExecutionRunner,
+    DockerExecutionRunner,
+)
 from backend.app.services.ledger_service import DoubleEntryLedgerEngine
+from backend.app.services.node_runner import JsSecurityScanner, NodeCodeRunner
 from backend.app.services.orchestrator import (
     EscrowOrchestrator,
     PolicyViolationError,
+    SandboxUnavailableError,
     sha256_hex,
 )
 from backend.app.services.paypal_escrow import compute_settlement_split
@@ -186,3 +193,145 @@ def test_mcp_submit_cannot_swap_the_suite_either(client):
     r = c.post(f"{P}/mcp/execute", json={"name": "aegispay_submit_deliverable", "arguments": {
         "agreement_id": aid, "source_code": "def f(): ...", "test_suite": ATTACKER_SUITE}})
     assert r.status_code == 403
+
+
+# ------------------------------------------------------------- the test suite is scanned and untrusted
+class NeverRunRunner:
+    """A runner that fails the test if anything is ever executed."""
+
+    isolated = False
+
+    def run_tests(self, *args, **kwargs):
+        raise AssertionError("untrusted code must not run when the scan fails")
+
+
+class FakeIsolatedRunner:
+    isolated = True
+
+    def run_tests(self, worker_code, test_code, **kwargs):
+        return 1, 1, "1 passed"
+
+
+# Same attack as the audit proof of concept: clean-but-wrong worker code, malicious test file.
+ESCAPING_TESTS = (
+    "import socket\n"
+    "def test_always_passes():\n"
+    "    open('/tmp/stolen', 'w').write(open('/etc/secret').read())\n"
+    "    assert True\n"
+)
+CLEAN_WRONG_WORKER = "def add(a, b):\n    return a - b\n"
+
+
+def test_malicious_test_suite_is_vetoed_and_never_executed():
+    arb = ArbitrationArbiter(runner=NeverRunRunner())
+    rep = arb.evaluate("agr_x", CLEAN_WRONG_WORKER, ESCAPING_TESTS, semantic_score=1.0, runtime="python")
+    assert rep.ast_safe is False
+    assert rep.composite_score == 0.0
+    assert rep.settlement.decision == "VOID_AUTHORIZATION"
+    assert any(v.startswith("test suite: Forbidden import: 'socket'") for v in rep.ast_violations)
+
+
+def test_worker_imports_are_still_reported_without_the_test_suite_prefix():
+    arb = ArbitrationArbiter(runner=NeverRunRunner())
+    rep = arb.evaluate("agr_x", "import os\n", "def test_x():\n    assert True\n", runtime="python")
+    assert rep.ast_violations == ["Forbidden import: 'os' at line 1"]
+
+
+def test_clean_worker_and_clean_suite_still_run():
+    arb = ArbitrationArbiter(runner=FakeIsolatedRunner())
+    rep = arb.evaluate("agr_x", "def f():\n    return 1\n", "def test_f():\n    assert True\n", runtime="python")
+    assert rep.ast_safe is True and rep.passed_tests == 1
+
+
+@pytest.mark.parametrize("module", ["importlib", "pickle", "pathlib", "sqlite3", "http.client", "tempfile"])
+def test_python_scanner_blocks_modules_that_bypass_the_denylist(module):
+    safe, violations = ArbitrationArbiter().scanner.scan(f"import {module}\n")
+    assert not safe and violations
+
+
+@pytest.mark.parametrize("snippet", [
+    "const cp = require('child_' + 'process');",
+    "const cp = require(`child_process`);",
+    "const name = 'child_process'; require(name);",
+    "const r = require; r('child_process');",
+    "import('child_process').then(m => m);",
+    "const e = process.env.PAYPAL_CLIENT_SECRET;",
+    "const e = process['env'];",
+    "globalThis['pro' + 'cess'];",
+    "(function(){}).constructor.constructor('return process')();",
+    "const v = require('node:v8');",
+])
+def test_js_scanner_blocks_known_bypasses(snippet):
+    safe, violations = JsSecurityScanner().scan(snippet)
+    assert not safe and violations
+
+
+def test_js_scanner_still_accepts_ordinary_code():
+    safe, violations = JsSecurityScanner().scan(
+        "const { test } = require('node:test');\nmodule.exports = { add: (a, b) => a + b };\n"
+    )
+    assert safe, violations
+
+
+# ------------------------------------------------------------------ no isolation, no real-money runs
+def test_only_docker_counts_as_isolated():
+    assert CodeExecutionRunner.isolated is False
+    assert NodeCodeRunner.isolated is False
+    assert DockerExecutionRunner.isolated is True
+
+
+def test_arbiter_reports_isolation_per_runtime():
+    arb = ArbitrationArbiter(runner=FakeIsolatedRunner())
+    assert arb.is_isolated("def f(): ...", "def test_f(): ...", "python") is True
+    assert arb.is_isolated("const x = 1;", "test('a', () => {});", "javascript") is False
+
+
+async def test_unisolated_sandbox_is_refused_outside_mock_mode_before_any_state_change():
+    arb = ArbitrationArbiter(runner=NeverRunRunner())
+    orch = make_orch(cfg=settings(PAYPAL_MODE="sandbox"), arbiter=arb)
+    c = await orch.create_contract(payload(test_suite=SUITE))
+    with pytest.raises(SandboxUnavailableError, match="isolated sandbox"):
+        await orch.submit_work(c.agreement_id, "def f(): ...")
+    assert orch.get(c.agreement_id).fsm_state == FsmState.PAYPAL_AUTH_LOCKED
+
+
+async def test_isolated_sandbox_is_accepted_outside_mock_mode():
+    arb = ArbitrationArbiter(runner=FakeIsolatedRunner())
+    orch = make_orch(cfg=settings(PAYPAL_MODE="sandbox"), arbiter=arb)
+    c = await orch.create_contract(payload(test_suite=SUITE))
+    done = await orch.submit_work(c.agreement_id, "def f():\n    return 1\n")
+    assert done.fsm_state in (FsmState.PAYOUT_DISPATCHED, FsmState.SETTLED_COMPLETE)
+
+
+async def test_javascript_is_refused_outside_mock_mode_even_with_a_docker_python_runner():
+    arb = ArbitrationArbiter(runner=FakeIsolatedRunner())
+    orch = make_orch(cfg=settings(PAYPAL_MODE="sandbox"), arbiter=arb)
+    c = await orch.create_contract(payload(test_suite="test('a', () => { expect(1).toBe(1); });"))
+    with pytest.raises(SandboxUnavailableError):
+        await orch.submit_work(c.agreement_id, "module.exports = { a: 1 };", runtime="javascript")
+
+
+async def test_explicit_flag_allows_unisolated_runs():
+    arb = ArbitrationArbiter(runner=NeverRunRunner())
+    orch = make_orch(cfg=settings(PAYPAL_MODE="sandbox", ALLOW_UNISOLATED_SANDBOX=True), arbiter=arb)
+    c = await orch.create_contract(payload(test_suite=SUITE))
+    done = await orch.submit_work(c.agreement_id, "import os\n")  # vetoed by the scan, so nothing runs
+    assert done.fsm_state == FsmState.ESCROW_VOIDED_REFUNDED
+
+
+async def test_malicious_suite_is_rejected_when_the_agreement_is_created():
+    orch = make_orch(arbiter=ArbitrationArbiter(runner=NeverRunRunner()))
+    with pytest.raises(PolicyViolationError, match="security scan"):
+        await orch.create_contract(payload(test_suite=ESCAPING_TESTS))
+    assert orch.repo.list_contracts() == []
+
+
+def test_api_returns_503_when_no_isolated_sandbox_exists(tmp_path):
+    cfg = settings(PAYPAL_MODE="sandbox", API_AUTH_KEY="k", DATABASE_URL=f"sqlite:///{tmp_path}/s.db")
+    app = create_app(cfg, engine=MockPayPalEscrowEngine())
+    app.state.orchestrator.arbiter = ArbitrationArbiter(runner=NeverRunRunner())
+    h = {"X-API-Key": "k"}
+    with TestClient(app) as c:
+        aid = c.post(f"{P}/contracts", json=api_body(test_suite=SUITE), headers=h).json()["agreement_id"]
+        r = c.post(f"{P}/contracts/{aid}/submit", json={"source_code": "def f(): ..."}, headers=h)
+        assert r.status_code == 503

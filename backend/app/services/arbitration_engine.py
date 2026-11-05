@@ -72,6 +72,29 @@ class AstSecurityScanner(ast.NodeVisitor):
         "posix",
         "aiohttp",
         "urllib3",
+        # Dynamic loading, serialization and file/network access that sidestep the checks above
+        "importlib",
+        "runpy",
+        "imp",
+        "pkgutil",
+        "marshal",
+        "pickle",
+        "shelve",
+        "sqlite3",
+        "http",
+        "ftplib",
+        "smtplib",
+        "telnetlib",
+        "socketserver",
+        "ssl",
+        "select",
+        "selectors",
+        "pathlib",
+        "tempfile",
+        "glob",
+        "winreg",
+        "msvcrt",
+        "nt",
     }
 
     DISALLOWED_CALLS: Set[str] = {
@@ -242,8 +265,13 @@ class AstSecurityScanner(ast.NodeVisitor):
 class CodeExecutionRunner:
     """
     Executes untrusted worker deliverables against buyer test suites in an
-    isolated, ephemeral directory with hard timeouts and scrubbed environments.
+    ephemeral directory with hard timeouts and scrubbed environments.
+
+    This is NOT a security boundary: the child process shares the host's filesystem and network.
+    `isolated` is False so the orchestrator refuses to use it for real funds.
     """
+
+    isolated = False
 
     def __init__(self, timeout_seconds: float = 5.0) -> None:
         self.timeout_seconds = timeout_seconds
@@ -410,6 +438,8 @@ class DockerExecutionRunner:
     Runs pytest inside an ephemeral hardened Docker container (dossier Fix #6).
     Same run_tests() interface and return type as CodeExecutionRunner.
     """
+
+    isolated = True
 
     HARDENING_FLAGS: List[str] = [
         "--network", "none",
@@ -595,6 +625,47 @@ class ArbitrationArbiter:
             return "javascript"
         return "python"
 
+    def _runner_for(self, is_node: bool) -> Any:
+        if is_node:
+            return self.node_runner if not isinstance(self.runner, NodeCodeRunner) else self.runner
+        return self.runner
+
+    def _scan_code(self, code: str, is_node: bool) -> Tuple[bool, List[str], List[str]]:
+        scanner = self.js_scanner if is_node else self.scanner
+        safe, violations = scanner.scan(code)
+        return safe, violations, list(scanner.scanned_imports)
+
+    def _scan_submission(
+        self, worker_code: str, test_code: str, is_node: bool
+    ) -> Tuple[bool, List[str], List[str], Any]:
+        """Scans the deliverable and the test suite. Returns (safe, violations, worker imports, runner)."""
+        w_safe, w_viol, w_imports = self._scan_code(worker_code, is_node)
+        t_safe, t_viol, _ = self._scan_code(test_code, is_node)
+        violations = list(w_viol) + [f"test suite: {v}" for v in t_viol]
+        return w_safe and t_safe, violations, w_imports, self._runner_for(is_node)
+
+    def scan_test_suite(self, test_code: str, runtime: Optional[str] = None) -> Tuple[bool, List[str]]:
+        """
+        Scans a buyer's test suite on its own, e.g. when an agreement commits to it. Without an
+        explicit runtime, a suite that is valid Python is scanned as Python and anything else as JS/TS.
+        """
+        if runtime:
+            is_node = self.detect_runtime("", test_code, runtime) in ("javascript", "typescript", "js", "ts", "node")
+        else:
+            try:
+                ast.parse(test_code)
+                is_node = False
+            except SyntaxError:
+                is_node = True
+        safe, violations, _ = self._scan_code(test_code, is_node)
+        return safe, violations
+
+    def is_isolated(self, worker_code: str = "", test_code: str = "", runtime: Optional[str] = None) -> bool:
+        """True when the runner this submission would use is a real isolation boundary (Docker)."""
+        target = self.detect_runtime(worker_code, test_code, runtime)
+        runner = self._runner_for(target in ("javascript", "typescript", "js", "ts", "node"))
+        return bool(getattr(runner, "isolated", False))
+
     @staticmethod
     def compute_semantic_rubric(source_code: str, runtime: str = "python") -> float:
         """
@@ -669,15 +740,10 @@ class ArbitrationArbiter:
         target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
         is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")
 
-        # 1. AST Security Audit
-        if is_node:
-            is_safe, violations = self.js_scanner.scan(worker_code)
-            scanned_imports = list(self.js_scanner.scanned_imports)
-            runner_to_use = self.node_runner if not isinstance(self.runner, NodeCodeRunner) else self.runner
-        else:
-            is_safe, violations = self.scanner.scan(worker_code)
-            scanned_imports = list(self.scanner.scanned_imports)
-            runner_to_use = self.runner
+        # 1. AST Security Audit (the test suite runs next to the deliverable, so it is scanned too)
+        is_safe, violations, scanned_imports, runner_to_use = self._scan_submission(
+            worker_code, buyer_test_code, is_node
+        )
         s_ast = 1.0 if is_safe else 0.0
 
         # 2. Test Execution
@@ -785,15 +851,10 @@ class ArbitrationArbiter:
         target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
         is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")
 
-        # 1. AST Security Audit
-        if is_node:
-            is_safe, violations = self.js_scanner.scan(worker_code)
-            scanned_imports = list(self.js_scanner.scanned_imports)
-            runner_to_use = self.node_runner if not isinstance(self.runner, NodeCodeRunner) else self.runner
-        else:
-            is_safe, violations = self.scanner.scan(worker_code)
-            scanned_imports = list(self.scanner.scanned_imports)
-            runner_to_use = self.runner
+        # 1. AST Security Audit (the test suite runs next to the deliverable, so it is scanned too)
+        is_safe, violations, scanned_imports, runner_to_use = self._scan_submission(
+            worker_code, buyer_test_code, is_node
+        )
         s_ast = 1.0 if is_safe else 0.0
 
         if not is_safe:

@@ -54,6 +54,7 @@ from backend.app.services.orchestrator import (
     EscrowOrchestrator,
     NotFoundError,
     PolicyViolationError,
+    SandboxUnavailableError,
     UpstreamError,
 )
 from backend.app.services.paypal_mock import get_paypal_engine
@@ -219,6 +220,8 @@ def create_app(
             return HTTPException(409, str(exc))
         if isinstance(exc, fsm.FsmError):
             return HTTPException(409, str(exc))
+        if isinstance(exc, SandboxUnavailableError):
+            return HTTPException(503, str(exc))
         if isinstance(exc, UpstreamError):
             return HTTPException(502, str(exc))
         raise exc

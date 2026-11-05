@@ -64,7 +64,11 @@ class UpstreamError(Exception):
 
 
 class PolicyViolationError(fsm.FsmError):
-    """The request is refused by a trust policy (test-suite binding, sandbox isolation)."""
+    """The request is refused by a trust policy (test-suite binding, scanning)."""
+
+
+class SandboxUnavailableError(UpstreamError):
+    """No isolated sandbox is available, so untrusted code is not run."""
 
 
 def sha256_hex(text: str) -> str:
@@ -172,6 +176,15 @@ class EscrowOrchestrator:
             if getattr(payload, "buyer_signature", None) or getattr(payload, "worker_signature", None):
                 if not validate_dual_signatures(payload.model_dump()):
                     raise fsm.FsmError("A2A signature validation failed: contractor proposal rejected")
+
+            if payload.test_suite:
+                scan_suite = getattr(self.arbiter, "scan_test_suite", None)
+                if scan_suite is not None:
+                    suite_safe, suite_violations = scan_suite(payload.test_suite)
+                    if not suite_safe:
+                        raise PolicyViolationError(
+                            "The test suite failed the security scan: " + "; ".join(suite_violations)
+                        )
 
             if effective_vault_id:
                 allowed, reason = check_vault_allowance(
@@ -304,6 +317,13 @@ class EscrowOrchestrator:
             if semantic_score is not None and not self.settings.is_mock:
                 raise PolicyViolationError("semantic_score overrides are only accepted in mock mode")
             test_suite = self._resolve_test_suite(c, test_suite)
+            if not self.settings.allow_unisolated_sandbox:
+                is_isolated = getattr(self.arbiter, "is_isolated", None)
+                if is_isolated is None or not is_isolated(source_code, test_suite, runtime):
+                    raise SandboxUnavailableError(
+                        "Refusing to run untrusted code without an isolated sandbox "
+                        "(start Docker and build the sandbox image, or set ALLOW_UNISOLATED_SANDBOX for demos)"
+                    )
             try:
                 self._move(c, FsmState.SANDBOX_EXECUTING, "Worker deliverable submitted")
             except fsm.AuthorizationExpiredError:
