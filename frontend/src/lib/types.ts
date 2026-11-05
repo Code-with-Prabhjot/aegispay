@@ -204,3 +204,15 @@ export interface WebSocketEnvelope<T = any> {
   timestamp: string;
   data: T;
 }
+
+export interface VaultVelocityStatus {
+  vault_id: string;
+  buyer_did: string;
+  max_amount_per_task_micros: number;
+  max_daily_budget_micros: number;
+  current_daily_spent_micros: number;
+  window_reset_timestamp: number;
+  consecutive_void_count: number;
+  is_frozen: number;
+  status: "ACTIVE" | "VAULT_LOCKED_CIRCUIT_BREAKER" | string;
+}

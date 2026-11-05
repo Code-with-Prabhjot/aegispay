@@ -2,7 +2,8 @@
 backend/app/api/routes_webhooks.py
 PayPal webhook listener: POST /api/v1/webhooks/paypal.
 
-Authenticates each delivery via PayPal's /v1/notifications/verify-webhook-signature, then hands
+Authenticates each delivery via PayPal's /v1/notifications/verify-webhook-signature and
+cryptographic validation in backend.app.services.paypal_webhooks, then hands
 it to EscrowOrchestrator.handle_webhook for the FSM and ledger updates. Any non-2xx response makes
 PayPal redeliver, so ignored events still return 200 and only transient failures return 5xx.
 """
@@ -13,6 +14,10 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.app.services.orchestrator import UpstreamError
+from backend.app.services.paypal_webhooks import (
+    PayPalWebhookDispatcher,
+    verify_paypal_webhook_signature,
+)
 
 router = APIRouter(prefix="/webhooks")
 
@@ -28,6 +33,12 @@ async def _verify_signature(request: Request, event: Dict[str, Any]) -> None:
     if not engine.webhook_id:
         raise HTTPException(503, "PAYPAL_WEBHOOK_ID is not configured")
     h = request.headers
+
+    # For non-mock engine deliveries, cryptographically verify headers and cert domain
+    if not getattr(engine, "is_mock", False):
+        if not verify_paypal_webhook_signature(dict(h), raw_body=b"", mock_mode=False):
+            raise HTTPException(401, "Webhook signature verification failed")
+
     try:
         verified = await engine.verify_webhook_signature(
             transmission_id=h.get("paypal-transmission-id", ""),

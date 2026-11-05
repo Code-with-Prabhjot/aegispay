@@ -4,6 +4,7 @@ import { useState } from "react";
 import * as api from "@/lib/api";
 import { formatBudget, microsToUsd } from "@/lib/format";
 import type { FsmState, SlaContractResponse } from "@/lib/types";
+import DualModelConsensusGauge from "./DualModelConsensusGauge";
 
 // ----------------------------------------------------------------------------
 // Preset Code Snippets
@@ -679,6 +680,13 @@ export default function CodeMutationStudio({
                   </span>
                 </div>
               )}
+
+              {/* Dual-Model Arbiter Consensus Gauge */}
+              <div className="mt-4">
+                <DualModelConsensusGauge
+                  geminiScore={executionResult.verification_score ?? undefined}
+                />
+              </div>
             </div>
           )}
         </div>

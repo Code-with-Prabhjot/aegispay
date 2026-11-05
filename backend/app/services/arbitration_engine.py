@@ -62,6 +62,16 @@ class AstSecurityScanner(ast.NodeVisitor):
         "pty",
         "ctypes",
         "builtins",
+        "io",
+        "_thread",
+        "threading",
+        "multiprocessing",
+        "shlex",
+        "resource",
+        "signal",
+        "posix",
+        "aiohttp",
+        "urllib3",
     }
 
     DISALLOWED_CALLS: Set[str] = {
@@ -69,6 +79,8 @@ class AstSecurityScanner(ast.NodeVisitor):
         "exec",
         "__import__",
         "compile",
+        "globals",
+        "locals",
     }
 
     WRITE_MODES: Set[str] = {"w", "a", "+", "x"}
@@ -129,6 +141,22 @@ class AstSecurityScanner(ast.NodeVisitor):
                 self.blocked_calls.append(alias.name)
         self.generic_visit(node)
 
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in ("__builtins__", "globals", "locals"):
+            self.violations.append(
+                f"Forbidden identifier: '{node.id}' at line {node.lineno}"
+            )
+            self.blocked_calls.append(node.id)
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in ("__builtins__", "__subclasses__", "__bases__", "__globals__", "__code__"):
+            self.violations.append(
+                f"Forbidden attribute access: '{node.attr}' at line {node.lineno}"
+            )
+            self.blocked_calls.append(node.attr)
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         # Check direct function calls: eval(), exec(), etc.
         func_name: Optional[str] = None
@@ -149,7 +177,38 @@ class AstSecurityScanner(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _check_open_call(self, node: ast.Call) -> None:
-        """Flags calls to open() that request write or append access."""
+        """Flags calls to open() that target restricted system paths or request write/append access."""
+        # Check target filepath
+        if node.args:
+            first_arg = node.args[0]
+            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                filepath = first_arg.value.strip().lower()
+                sensitive_prefixes = (
+                    "/etc",
+                    "/proc",
+                    "/sys",
+                    "/dev",
+                    "/var",
+                    "/root",
+                    "/bin",
+                    "/usr",
+                    "/boot",
+                    "c:\\windows",
+                    "c:/windows",
+                    "c:\\winnt",
+                    "c:/winnt",
+                )
+                if (
+                    any(filepath.startswith(p) for p in sensitive_prefixes)
+                    or ".." in filepath
+                    or filepath.startswith(("/", "\\"))
+                ):
+                    self.violations.append(
+                        f"Forbidden call: open() with restricted/sensitive path '{first_arg.value}' at line {node.lineno}"
+                    )
+                    self.blocked_calls.append(f"open('{first_arg.value}')")
+                    return
+
         mode_str: Optional[str] = None
 
         # Positional mode argument: open(file, mode, ...)

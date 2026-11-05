@@ -8,6 +8,7 @@ import EscrowLedgerGrid from "@/components/EscrowLedgerGrid";
 import FsmTimeline from "@/components/FsmTimeline";
 import LedgerPanel from "@/components/LedgerPanel";
 import CodeMutationStudio from "@/components/CodeMutationStudio";
+import VaultManagementModal from "@/components/VaultManagementModal";
 import { API_BASE } from "@/lib/api";
 import { microsToUsd } from "@/lib/format";
 import type { ScenarioName } from "@/lib/types";
@@ -23,6 +24,7 @@ const SCENARIOS = [
 export default function Dashboard() {
   const a = useAegis();
   const [isStudioOpen, setIsStudioOpen] = useState(false);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
 
   const statusClass =
     a.connection === "online" ? "up"
@@ -48,6 +50,15 @@ export default function Dashboard() {
             </Link>
             <div className="right flex items-center gap-3">
               <span className={`status ${statusClass}`}>{statusLabel}</span>
+
+              {/* Vault Management Allowance Modal Trigger */}
+              <button
+                onClick={() => setIsVaultModalOpen(true)}
+                className="btn sm border border-cyan-500/40 bg-slate-900/80 hover:bg-cyan-500/20 text-cyan-300 font-semibold transition-all flex items-center gap-1.5"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+                🛡️ Buyer Vault
+              </button>
 
               {/* Code Mutation Studio Slide-Over Trigger */}
               <button
@@ -216,6 +227,12 @@ export default function Dashboard() {
           a.refresh();
         }}
         demoMode={a.demoMode}
+      />
+
+      {/* Buyer Vault Management Modal */}
+      <VaultManagementModal
+        isOpen={isVaultModalOpen}
+        onClose={() => setIsVaultModalOpen(false)}
       />
     </>
   );

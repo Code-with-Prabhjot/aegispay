@@ -20,6 +20,7 @@ import type {
   SlaContractCreate,
   SlaContractResponse,
   SubmitWork,
+  VaultVelocityStatus,
 } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1").replace(/\/$/, "");
@@ -118,3 +119,38 @@ export const runScenario = async (name: ScenarioName) =>
   );
 
 export const getLedger = () => request<LedgerResponse>("/ledger");
+
+export const getVaultStatus = async (vaultId = "vault_buyer_primary"): Promise<VaultVelocityStatus> => {
+  try {
+    return await request<VaultVelocityStatus>(`/vault/status`);
+  } catch {
+    return await request<VaultVelocityStatus>(`/vaults/${encodeURIComponent(vaultId)}`);
+  }
+};
+
+export const refreshVaultAllowance = async (
+  vaultId = "vault_buyer_primary"
+): Promise<{ status: string; refreshed: boolean; vault: VaultVelocityStatus }> => {
+  try {
+    return await request<{ status: string; refreshed: boolean; vault: VaultVelocityStatus }>("/vault/refresh", {
+      method: "POST",
+      body: JSON.stringify({ vault_id: vaultId }),
+    });
+  } catch {
+    const res = await request<{ status: string; vault: VaultVelocityStatus }>(
+      `/vaults/${encodeURIComponent(vaultId)}/reset`,
+      { method: "POST" }
+    );
+    return { status: res.status, refreshed: true, vault: res.vault };
+  }
+};
+
+export const toggleVaultFreeze = async (
+  vaultId = "vault_buyer_primary",
+  freeze?: boolean
+): Promise<{ status: string; is_frozen: number; vault: VaultVelocityStatus }> => {
+  return await request<{ status: string; is_frozen: number; vault: VaultVelocityStatus }>("/vault/freeze", {
+    method: "POST",
+    body: JSON.stringify({ vault_id: vaultId, freeze }),
+  });
+};

@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 import json
 from pathlib import Path
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -416,6 +417,77 @@ def create_app(
         if vault is None:
             raise HTTPException(404, f"Vault '{vault_id}' not found")
         return {"status": "unfrozen", "vault": vault.to_dict()}
+
+    @api.get("/vault/status", include_in_schema=False)
+    @api.get("/vaults/status", include_in_schema=False)
+    async def get_default_vault_status() -> Dict[str, Any]:
+        vault = repository.get_vault("vault_buyer_primary")
+        if vault is None:
+            vault = register_vault(
+                vault_id="vault_buyer_primary",
+                buyer_did="did:aegis:buyer:enterprise-agent-01",
+                max_amount_per_task_micros=100_000_000,
+                max_daily_budget_micros=250_000_000,
+                current_daily_spent_micros=45_000_000,
+                window_reset_timestamp=int(time.time()) + 86400,
+                consecutive_void_count=0,
+                is_frozen=0,
+                repo=repository,
+            )
+        status = "VAULT_LOCKED_CIRCUIT_BREAKER" if vault.is_frozen == 1 else "ACTIVE"
+        d = vault.to_dict()
+        d["status"] = status
+        return d
+
+    @api.post("/vault/refresh", include_in_schema=False)
+    @api.post("/vaults/refresh", include_in_schema=False)
+    async def refresh_vault_allowance(vault_id: Optional[str] = None) -> Dict[str, Any]:
+        vid = vault_id or "vault_buyer_primary"
+        vault = repository.get_vault(vid)
+        if vault is None:
+            vault = register_vault(
+                vault_id=vid,
+                buyer_did="did:aegis:buyer:enterprise-agent-01",
+                max_amount_per_task_micros=100_000_000,
+                max_daily_budget_micros=250_000_000,
+                current_daily_spent_micros=0,
+                window_reset_timestamp=int(time.time()) + 86400,
+                consecutive_void_count=0,
+                is_frozen=0,
+                repo=repository,
+            )
+        else:
+            vault.is_frozen = 0
+            vault.consecutive_void_count = 0
+            vault.current_daily_spent_micros = 0
+            vault.window_reset_timestamp = int(time.time()) + 86400
+            repository.save_vault(vault)
+        d = vault.to_dict()
+        d["status"] = "ACTIVE"
+        return {"status": "ACTIVE", "refreshed": True, "vault": d}
+
+    @api.post("/vault/freeze", include_in_schema=False)
+    @api.post("/vaults/{vault_id}/freeze", include_in_schema=False)
+    async def freeze_vault_endpoint(vault_id: Optional[str] = None, freeze: Optional[bool] = None) -> Dict[str, Any]:
+        vid = vault_id or "vault_buyer_primary"
+        vault = repository.get_vault(vid)
+        if vault is None:
+            vault = register_vault(
+                vault_id=vid,
+                buyer_did="did:aegis:buyer:enterprise-agent-01",
+                max_amount_per_task_micros=100_000_000,
+                max_daily_budget_micros=250_000_000,
+                is_frozen=1,
+                repo=repository,
+            )
+        else:
+            new_frozen = 1 if freeze is None else (1 if freeze else 0)
+            vault.is_frozen = new_frozen
+            repository.save_vault(vault)
+        status = "VAULT_LOCKED_CIRCUIT_BREAKER" if vault.is_frozen == 1 else "ACTIVE"
+        d = vault.to_dict()
+        d["status"] = status
+        return {"status": status, "is_frozen": vault.is_frozen, "vault": d}
 
     @api.post("/sweeper/run")
     async def run_sweeper_endpoint(params: Optional[SweeperRunParams] = None) -> Dict[str, Any]:
