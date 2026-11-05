@@ -104,6 +104,42 @@ def record_vault_settlement(
     r.save_vault(vault)
 
 
+def reserve_vault_funds(
+    vault_id: str,
+    amount_micros: int,
+    repo: Optional[Repository] = None,
+    now_epoch: Optional[int] = None,
+) -> None:
+    """
+    Counts an open escrow hold against the rolling daily budget. Without this the limit only sees
+    captured spend, so any number of contracts can be opened against the same unspent allowance.
+    """
+    now = int(time.time()) if now_epoch is None else int(now_epoch)
+    r = _resolve_repo(repo)
+    vault = r.get_vault(vault_id)
+    if vault is None:
+        return
+    if vault.window_reset_timestamp == 0 or now >= vault.window_reset_timestamp:
+        vault.current_daily_spent_micros = 0
+        vault.window_reset_timestamp = now + 86400
+    vault.current_daily_spent_micros += max(0, amount_micros)
+    r.save_vault(vault)
+
+
+def release_vault_funds(
+    vault_id: str,
+    amount_micros: int,
+    repo: Optional[Repository] = None,
+) -> None:
+    """Returns a reservation made by reserve_vault_funds (the hold settled, was voided or expired)."""
+    r = _resolve_repo(repo)
+    vault = r.get_vault(vault_id)
+    if vault is None:
+        return
+    vault.current_daily_spent_micros = max(0, vault.current_daily_spent_micros - max(0, amount_micros))
+    r.save_vault(vault)
+
+
 def reset_vault_circuit_breaker(
     vault_id: str,
     repo: Optional[Repository] = None,

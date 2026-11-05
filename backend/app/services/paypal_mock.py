@@ -75,11 +75,7 @@ class MockPayPalEscrowEngine:
             "links": [],
         }
         if vault_id:
-            order["vault_id"] = vault_id
-            order["payment_source"] = {
-                "token": {"id": vault_id, "type": "PAYMENT_METHOD_TOKEN"},
-                "vault_id": vault_id,
-            }
+            order["payment_source"] = {"paypal": {"vault_id": vault_id}}
         return order
 
     async def capture_authorization(

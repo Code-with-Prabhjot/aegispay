@@ -219,13 +219,9 @@ class PayPalEscrowEngine:
             },
         }
         if vault_id:
-            payload["payment_source"] = {
-                "token": {
-                    "id": vault_id,
-                    "type": "PAYMENT_METHOD_TOKEN",
-                },
-                "vault_id": vault_id,
-            }
+            # Pay with a previously vaulted PayPal account (Orders v2 payment_source.paypal.vault_id).
+            # Not yet exercised against the live sandbox.
+            payload["payment_source"] = {"paypal": {"vault_id": vault_id}}
         elif enable_vault:
             payload["payment_source"] = {
                 "paypal": {

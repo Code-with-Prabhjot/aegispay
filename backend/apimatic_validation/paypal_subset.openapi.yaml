@@ -224,6 +224,9 @@ components:
             paypal:
               type: object
               properties:
+                vault_id:
+                  type: string
+                  x-aegispay-unverified: true  # pay with a vaulted account; not yet run against the live sandbox
                 attributes:
                   type: object
                   properties:

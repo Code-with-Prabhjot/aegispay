@@ -36,6 +36,8 @@ from backend.app.services.vault_service import (
     VaultCircuitBreakerError,
     check_vault_allowance,
     record_vault_settlement,
+    release_vault_funds,
+    reserve_vault_funds,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ SETTLEMENT_PENDING_STATES = frozenset({
     FsmState.PARTIAL_CAPTURE_PENDING,
     FsmState.VOID_PENDING,
 })
+ARBITER_FAILURE_PREFIX = "Arbiter failure"
 # An evaluation that has been running this long has died (crash or restart); the worker's code is not stored.
 STUCK_EVALUATION_AFTER = timedelta(minutes=10)
 
@@ -213,70 +216,95 @@ class EscrowOrchestrator:
                 if not allowed:
                     raise VaultCircuitBreakerError(reason, vault_id=effective_vault_id)
 
-            genesis_hash = compute_genesis_hash(agreement_id)
-            c = fsm.ContractRecord(
-                agreement_id=agreement_id,
-                buyer_agent_id=payload.buyer_agent_id,
-                worker_agent_id=payload.worker_agent_id,
-                worker_paypal_email=payload.worker_paypal_email,
-                budget_micros=payload.budget_micros,
-                task_description=payload.task_description,
-                timeout_seconds=payload.timeout_seconds,
-                created_at=now,
-                updated_at=now,
-                vault_id=effective_vault_id,
-                hash_chain_head=genesis_hash,
-                buyer_signature=getattr(payload, "buyer_signature", None),
-                worker_signature=getattr(payload, "worker_signature", None),
-                test_suite=payload.test_suite,
-                test_suite_sha256=sha256_hex(payload.test_suite) if payload.test_suite else None,
-            )
-            c.transitions.append(
-                fsm.TransitionRecord(agreement_id, None, FsmState.AGREEMENT_DRAFTED,
-                                     "SLA contract drafted", now)
-            )
-            self.repo.save_contract(c)
-            self.repo.append_hash_chain_entry(
-                agreement_id=agreement_id,
-                state=FsmState.AGREEMENT_DRAFTED.value,
-                prev_hash="0" * 64,
-                current_hash=genesis_hash,
-                payload_json=json.dumps({"task_description": payload.task_description, "budget_micros": payload.budget_micros}),
-                created_at=now,
-            )
-            if self.broadcaster:
-                self.broadcaster.broadcast_sync({
-                    "event_type": "FSM_TRANSITION",
-                    "agreement_id": c.agreement_id,
-                    "timestamp": now.isoformat(),
-                    "data": {
-                        "from_state": None,
-                        "to_state": FsmState.AGREEMENT_DRAFTED.value,
-                        "reason": "SLA contract drafted",
-                        "contract": c.to_response().model_dump(mode="json"),
-                    },
-                })
+            # Count the hold against the daily budget now, not at capture, so concurrent contracts
+            # cannot all pass the check against the same unspent allowance.
+            reserved = False
+            if effective_vault_id:
+                reserve_vault_funds(
+                    effective_vault_id, payload.budget_micros, repo=self.repo,
+                    now_epoch=int(now.timestamp()),
+                )
+                reserved = True
 
             try:
-                order = await self.engine.create_escrow_authorization_order(
-                    agreement_id,
-                    payload.budget_micros,
-                    payload.task_description,
-                    vault_id=effective_vault_id,
-                )
-            except Exception as exc:  # network / PayPal error: contract stays DRAFTED
-                raise UpstreamError(f"PayPal authorization failed: {exc}") from exc
-            auth_id = extract_authorization_id(order)
-            if auth_id is None:
-                raise UpstreamError("PayPal order has no authorization (buyer approval required)")
+                return await self._draft_and_lock(payload, agreement_id, effective_vault_id, now)
+            except BaseException:
+                if reserved:
+                    release_vault_funds(effective_vault_id, payload.budget_micros, repo=self.repo)
+                raise
 
-            c.paypal_order_id = order.get("id")
-            c.paypal_authorization_id = auth_id
-            c.authorized_at = self.clock()
-            self._move(c, FsmState.PAYPAL_AUTH_LOCKED, "PayPal authorization hold locked")
-            with self.repo.db.transaction():
-                self._record_hold_locked(c)
-            return c
+    async def _draft_and_lock(
+        self,
+        payload: SlaContractCreate,
+        agreement_id: str,
+        effective_vault_id: Optional[str],
+        now: datetime,
+    ) -> fsm.ContractRecord:
+        """Persist the draft, place the PayPal hold and lock it (the caller holds the lock)."""
+        genesis_hash = compute_genesis_hash(agreement_id)
+        c = fsm.ContractRecord(
+            agreement_id=agreement_id,
+            buyer_agent_id=payload.buyer_agent_id,
+            worker_agent_id=payload.worker_agent_id,
+            worker_paypal_email=payload.worker_paypal_email,
+            budget_micros=payload.budget_micros,
+            task_description=payload.task_description,
+            timeout_seconds=payload.timeout_seconds,
+            created_at=now,
+            updated_at=now,
+            vault_id=effective_vault_id,
+            hash_chain_head=genesis_hash,
+            buyer_signature=getattr(payload, "buyer_signature", None),
+            worker_signature=getattr(payload, "worker_signature", None),
+            test_suite=payload.test_suite,
+            test_suite_sha256=sha256_hex(payload.test_suite) if payload.test_suite else None,
+        )
+        c.transitions.append(
+            fsm.TransitionRecord(agreement_id, None, FsmState.AGREEMENT_DRAFTED,
+                                 "SLA contract drafted", now)
+        )
+        self.repo.save_contract(c)
+        self.repo.append_hash_chain_entry(
+            agreement_id=agreement_id,
+            state=FsmState.AGREEMENT_DRAFTED.value,
+            prev_hash="0" * 64,
+            current_hash=genesis_hash,
+            payload_json=json.dumps({"task_description": payload.task_description, "budget_micros": payload.budget_micros}),
+            created_at=now,
+        )
+        if self.broadcaster:
+            self.broadcaster.broadcast_sync({
+                "event_type": "FSM_TRANSITION",
+                "agreement_id": c.agreement_id,
+                "timestamp": now.isoformat(),
+                "data": {
+                    "from_state": None,
+                    "to_state": FsmState.AGREEMENT_DRAFTED.value,
+                    "reason": "SLA contract drafted",
+                    "contract": c.to_response().model_dump(mode="json"),
+                },
+            })
+
+        try:
+            order = await self.engine.create_escrow_authorization_order(
+                agreement_id,
+                payload.budget_micros,
+                payload.task_description,
+                vault_id=effective_vault_id,
+            )
+        except Exception as exc:  # network / PayPal error: contract stays DRAFTED
+            raise UpstreamError(f"PayPal authorization failed: {exc}") from exc
+        auth_id = extract_authorization_id(order)
+        if auth_id is None:
+            raise UpstreamError("PayPal order has no authorization (buyer approval required)")
+
+        c.paypal_order_id = order.get("id")
+        c.paypal_authorization_id = auth_id
+        c.authorized_at = self.clock()
+        self._move(c, FsmState.PAYPAL_AUTH_LOCKED, "PayPal authorization hold locked")
+        with self.repo.db.transaction():
+            self._record_hold_locked(c)
+        return c
 
     def _record_hold_locked(self, c: fsm.ContractRecord) -> None:
         # Demo funding: the buyer vault is topped up so the hold can be placed.
@@ -298,7 +326,30 @@ class EscrowOrchestrator:
         with self.repo.db.transaction():
             self.ledger.record_transfer(BUYER, ESCROW, c.budget_micros, c.agreement_id,
                                         f"Authorization expired: hold released to buyer ({c.agreement_id})")
+            self._settle_vault(c, 0, is_void=True, penalize=False)
             self.repo.save_contract(c)
+
+    def _settle_vault(self, c: fsm.ContractRecord, captured_micros: int, is_void: bool,
+                      penalize: bool = True) -> None:
+        """
+        Closes the vault accounting for a contract's hold: return the reservation made when the hold
+        was placed, then book what was actually captured (or, for a worker-fault void, the strike
+        toward the circuit breaker).
+        """
+        vault_id = getattr(c, "vault_id", None)
+        if not vault_id:
+            return
+        release_vault_funds(vault_id, c.budget_micros, repo=self.repo)
+        if is_void and not penalize:
+            return
+        record_vault_settlement(
+            vault_id, captured_micros, is_void=is_void, repo=self.repo,
+            now_epoch=int(self.clock().timestamp()),
+        )
+
+    @staticmethod
+    def _voided_for_worker_fault(report: ArbitrationReport) -> bool:
+        return not report.stdout.startswith(ARBITER_FAILURE_PREFIX)
 
     # ------------------------------------------------------------------- submit
     def _resolve_test_suite(self, c: fsm.ContractRecord, supplied: Optional[str]) -> str:
@@ -402,7 +453,7 @@ class EscrowOrchestrator:
         report = ArbitrationReport(
             agreement_id=c.agreement_id, s_pytest=0.0, s_ast=1.0, s_semantic=0.0, composite_score=0.0,
             passed_tests=0, total_tests=0, ast_safe=True, settlement=split,
-            stdout=f"Arbiter failure ({type(exc).__name__}): hold voided, nothing was verified or captured.",
+            stdout=f"{ARBITER_FAILURE_PREFIX} ({type(exc).__name__}): hold voided, nothing was verified or captured.",
         )
         c.report = report.model_dump(mode="json")
         c.verification_score = 0.0
@@ -443,14 +494,7 @@ class EscrowOrchestrator:
         self._move(c, FsmState.ESCROW_VOIDED_REFUNDED, "Authorization voided; hold released to buyer")
         with self.repo.db.transaction():
             self.ledger.record_settlement(c.agreement_id, report.settlement)
-            if getattr(c, "vault_id", None) and penalize_vault:
-                record_vault_settlement(
-                    c.vault_id,
-                    0,
-                    is_void=True,
-                    repo=self.repo,
-                    now_epoch=int(self.clock().timestamp()),
-                )
+            self._settle_vault(c, 0, is_void=True, penalize=penalize_vault)
             self.repo.save_contract(c)
 
     async def _capture_and_payout(self, c: fsm.ContractRecord, report: ArbitrationReport) -> None:
@@ -475,14 +519,7 @@ class EscrowOrchestrator:
         self._move(c, captured, f"Captured {split.capture_usd} USD")
         with self.repo.db.transaction():
             self.ledger.record_settlement(c.agreement_id, split)
-            if getattr(c, "vault_id", None):
-                record_vault_settlement(
-                    c.vault_id,
-                    split.capture_micros,
-                    is_void=False,
-                    repo=self.repo,
-                    now_epoch=int(self.clock().timestamp()),
-                )
+            self._settle_vault(c, split.capture_micros, is_void=False)
             self.repo.save_contract(c)
         await self._dispatch_payout(c, attempt=1)
 
@@ -581,6 +618,9 @@ class EscrowOrchestrator:
         c.authorized_at = self.clock()
         self._move(c, FsmState.PAYPAL_AUTH_LOCKED, f"Webhook {event_type}")
         self._record_hold_locked(c)
+        if c.vault_id:  # the reservation made at creation was released when that attempt failed
+            reserve_vault_funds(c.vault_id, c.budget_micros, repo=self.repo,
+                                now_epoch=int(self.clock().timestamp()))
         return "processed", c.agreement_id
 
     def _apply_capture_completed(self, event_type: str, resource: Dict[str, Any]):
@@ -604,6 +644,7 @@ class EscrowOrchestrator:
         c.paypal_capture_id = capture_id
         self._move(c, target, f"Webhook {event_type}")
         self.ledger.record_settlement(c.agreement_id, split)
+        self._settle_vault(c, split.capture_micros, is_void=False)
         self.repo.save_contract(c)
         return "processed", c.agreement_id
 
@@ -628,7 +669,9 @@ class EscrowOrchestrator:
         if c.fsm_state != FsmState.VOID_PENDING:
             return "ignored_illegal_state", c.agreement_id
         self._move(c, FsmState.ESCROW_VOIDED_REFUNDED, f"Webhook {event_type}")
-        self.ledger.record_settlement(c.agreement_id, ArbitrationReport(**c.report).settlement)
+        report = ArbitrationReport(**c.report)
+        self.ledger.record_settlement(c.agreement_id, report.settlement)
+        self._settle_vault(c, 0, is_void=True, penalize=self._voided_for_worker_fault(report))
         self.repo.save_contract(c)
         return "processed", c.agreement_id
 
