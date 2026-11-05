@@ -600,6 +600,11 @@ async def test_orchestrator_submits_polyglot_javascript_work():
     settings.PROTOCOL_FEE_BPS = 500
     settings.PAYPAL_PAYOUT_FEE_MICROS = 250_000
     settings.SANDBOX_MODE = "subprocess"
+    # A MagicMock answers every attribute with a truthy mock, so say what the policy flags are.
+    settings.is_mock = True
+    settings.allow_unbound_test_suite = True
+    settings.allow_unisolated_sandbox = True
+    settings.REQUIRE_A2A_SIGNATURES = False
 
     orch = Orchestrator(
         repo=repo,
