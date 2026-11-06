@@ -16,9 +16,24 @@ import { useAegis } from "@/lib/useAegis";
 import "@/components/landing/landing.css";
 
 const SCENARIOS = [
-  { key: "CLEAN_PASS", title: "Clean pass", desc: "Correct, safe code. Full capture." },
-  { key: "PARTIAL_DEFECT", title: "Partial defect", desc: "Some tests fail. Proportional capture." },
-  { key: "MALICIOUS_INJECTION", title: "Malicious injection", desc: "AST veto. Authorization voided." },
+  {
+    key: "CLEAN_PASS",
+    title: "Clean pass",
+    desc: "Correct, safe code. Full capture.",
+    proves: "Verifies 10/10 tests & pays worker",
+  },
+  {
+    key: "PARTIAL_DEFECT",
+    title: "Partial defect",
+    desc: "Some tests fail. Proportional capture.",
+    proves: "Tests pro-rata refund math",
+  },
+  {
+    key: "MALICIOUS_INJECTION",
+    title: "Malicious injection",
+    desc: "AST veto. Authorization voided.",
+    proves: "Blocks malicious code & voids hold",
+  },
 ];
 
 export default function Dashboard() {
@@ -121,6 +136,9 @@ export default function Dashboard() {
                 >
                   <b>{s.title}</b>
                   <span>{s.desc}</span>
+                  <span className="text-[11px] font-mono text-cyan-300/80 flex items-center gap-1.5 mt-0.5">
+                    <span className="text-cyan-400">🛡️</span> {s.proves}
+                  </span>
                   <em>{a.busy === s.key ? "Running..." : "Run scenario →"}</em>
                 </button>
               ))}

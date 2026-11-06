@@ -80,7 +80,15 @@ h1{font-size:clamp(2.7rem,6.2vw,5.2rem);line-height:1.02;letter-spacing:-.045em;
 .hc-track{display:flex;gap:6px;margin-bottom:1.4rem}.hc-track span{flex:1;height:7px;border-radius:9px;background:rgba(255,255,255,.1);transition:.5s}.hc-track span.on{background:var(--grad);box-shadow:0 0 14px rgba(0,229,255,.8)}
 .hc-rows div{display:flex;justify-content:space-between;padding:.75rem 0;border-top:1px dashed var(--line);font-size:.9rem;color:var(--mut)}.hc-rows em{font-style:normal;font-family:inherit;font-weight:800;color:#fff}
 .float{position:absolute;background:linear-gradient(135deg,var(--blue),var(--violet));color:#fff;font-size:.78rem;font-weight:800;padding:.6rem 1rem;border-radius:14px;box-shadow:0 16px 40px -10px rgba(122,92,255,.8);animation:bob 5s ease-in-out infinite}
-.f1{left:-2rem;top:35%}.f2{right:-1.4rem;bottom:-1rem;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#02123f;animation-delay:-2s}
+.f1{left:1.6rem;top:-1.1rem;display:flex;align-items:center;gap:.4rem;z-index:3}.f2{right:-1.4rem;bottom:-1rem;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#02123f;animation-delay:-2s}
+
+/* ---------- settlement simulator pill & spinner ---------- */
+.sim-pill{display:inline-flex;align-items:center;gap:.5rem;padding:.36rem .95rem;border-radius:999px;font-size:.72rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.35);box-shadow:0 0 20px -3px rgba(0,229,255,.35),inset 0 0 12px rgba(0,229,255,.1);backdrop-filter:blur(12px);margin-bottom:1rem;transition:.3s}
+.sim-pill:hover{box-shadow:0 0 25px 0 rgba(0,229,255,.5),inset 0 0 16px rgba(0,229,255,.15);border-color:var(--cyan)}
+.sim-pill-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:pulse-dot 2s infinite ease-in-out}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+.spinner-sm{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin-sm .75s linear infinite;margin-left:.35rem;vertical-align:middle}
+@keyframes spin-sm{to{transform:rotate(360deg)}}
 
 /* ---------- marquee / stats ---------- */
 .marquee{overflow:hidden;padding:1.2rem 0;white-space:nowrap;background:linear-gradient(90deg,rgba(0,100,255,.25),rgba(122,92,255,.25),rgba(0,229,255,.25));border-block:1px solid var(--line);transform:rotate(-1.2deg) scale(1.03)}
@@ -162,7 +170,7 @@ footer{position:relative;display:flex;justify-content:space-between;flex-wrap:wr
 .bals{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem}.bals div{padding:1.1rem;border-radius:16px;background:rgba(255,255,255,.05);box-shadow:0 0 0 1px var(--line);transition:.3s}.bals div:hover{transform:translateY(-4px);box-shadow:0 0 0 1px var(--cyan),0 14px 30px -14px rgba(0,229,255,.6)}.bals span{display:block;font-size:.72rem;color:var(--mut);text-transform:capitalize;margin-bottom:.3rem}.bals b{font-size:1.25rem;color:#fff}
 .tbl{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.85rem}th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);padding:.6rem}td{padding:.75rem .6rem;border-top:1px solid var(--line);color:var(--ink)}tr:hover td{background:rgba(0,229,255,.06)}td:nth-child(3){font-weight:800;color:var(--cyan)}
 
-@media(max-width:900px){.hero,.how,.calc,.out{grid-template-columns:1fr}.cards,.scen{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.how-l{position:static}.step{margin-bottom:2rem}.nav nav{display:none}.f1{left:0}.f2{right:0}.bals{grid-template-columns:1fr 1fr}.verif{flex-direction:column}.marquee{transform:none}}
+@media(max-width:900px){.hero,.how,.calc,.out{grid-template-columns:1fr}.cards,.scen{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.how-l{position:static}.step{margin-bottom:2rem}.nav nav{display:none}.f1{left:1rem;top:-1.1rem}.f2{right:0}.bals{grid-template-columns:1fr 1fr}.verif{flex-direction:column}.marquee{transform:none}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal,.w{opacity:1;transform:none;filter:none}}
 
 .card,.stat,.panel,.step,.sc{contain:layout paint}

@@ -81,7 +81,7 @@ function HeroCard() {
         <div><b>Platform fee</b><em>{i >= 4 ? "$0.75" : "..."}</em></div>
         <div><b>Ledger</b><em>{i === 5 ? "balanced" : "open"}</em></div>
       </div>
-      <div className="float f1">AST scan passed</div>
+      <div className="float f1">🛡️ AST scan passed</div>
       <div className="float f2">12/12 tests</div>
     </div>
   );
@@ -145,6 +145,7 @@ export default function Landing() {
   useReveal();
   const [active, setActive] = useState(0);
   const [scrolled, setScrolled] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
@@ -163,6 +164,10 @@ export default function Landing() {
   }, []);
 
   const go = () => router.push("/dashboard");
+  const handleLaunch = () => {
+    setIsLaunching(true);
+    router.push("/dashboard");
+  };
 
   return (
     <div className="landing">
@@ -246,7 +251,12 @@ export default function Landing() {
       </section>
 
       <section id="try" className="try">
-        <span className="eyebrow reveal center">Interactive</span>
+        <div className="reveal center">
+          <span className="sim-pill">
+            <span className="sim-pill-dot" />
+            SETTLEMENT SIMULATOR
+          </span>
+        </div>
         <h2 className="reveal center">See how the score moves the money.</h2>
         <Calculator />
       </section>
@@ -255,7 +265,19 @@ export default function Landing() {
         <div className="blob b3" />
         <h2>Ready to watch an escrow settle?</h2>
         <p>Run three preset scenarios in the live dashboard: a clean pass, a partial defect and a malicious injection.</p>
-        <button className="btn light" onClick={go}>Launch Mission Control <span>→</span></button>
+        <button
+          className="btn light"
+          onClick={handleLaunch}
+          disabled={isLaunching}
+          aria-busy={isLaunching}
+        >
+          Launch Mission Control{" "}
+          {isLaunching ? (
+            <span className="spinner-sm" aria-label="Loading dashboard..." />
+          ) : (
+            <span>→</span>
+          )}
+        </button>
       </section>
 
       <footer>

@@ -23,14 +23,74 @@ import type {
   VaultVelocityStatus,
 } from "./types";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1").replace(/\/$/, "");
+function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    // In browser environments, make REST requests use relative /api/v1 routes
+    // so Next.js rewrites proxy them automatically, eliminating Codespaces port visibility and CORS issues.
+    const envBase = process.env.NEXT_PUBLIC_API_BASE;
+    if (envBase && !envBase.includes("localhost") && !envBase.includes("127.0.0.1") && envBase.startsWith("http")) {
+      return envBase.replace(/\/$/, "");
+    }
+    return "/api/v1";
+  }
+  // Server-side fallback (e.g. during SSR or build)
+  const backend =
+    process.env.BACKEND_URL ||
+    (process.env.NEXT_PUBLIC_API_BASE?.startsWith("http")
+      ? process.env.NEXT_PUBLIC_API_BASE.replace(/\/api\/v1\/?$/, "")
+      : "http://127.0.0.1:8000");
+  return `${backend.replace(/\/$/, "")}/api/v1`;
+}
+
+export const API_BASE = resolveApiBase();
 
 export function getWebSocketUrl(path = "/ws/ledger"): string {
-  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_WS_URL) {
-    return process.env.NEXT_PUBLIC_WS_URL;
+  // Normalize path and eliminate any duplicate /api/v1 prefixes
+  let cleanPath = path.trim();
+  if (!cleanPath.startsWith("/")) cleanPath = `/${cleanPath}`;
+  cleanPath = cleanPath.replace(/^(\/api\/v1)+/i, "/api/v1");
+  if (cleanPath === "/ws/ledger") {
+    cleanPath = "/api/v1/ws/ledger";
   }
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const base = API_BASE.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
+
+  // 1. Explicit override via NEXT_PUBLIC_WS_URL
+  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_WS_URL) {
+    const customWs = process.env.NEXT_PUBLIC_WS_URL.replace(/\/$/, "");
+    return customWs.includes("/ws/") ? customWs : `${customWs}${cleanPath}`;
+  }
+
+  // 2. Browser environment
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+    // GitHub Codespaces support: derive -8000 port-forwarded WebSocket host dynamically
+    if (hostname.includes("github.dev") || hostname.includes("app.github.dev")) {
+      const wsHost = /-\d+(?=\.|$)/.test(hostname)
+        ? hostname.replace(/-\d+(?=\.|$)/, "-8000")
+        : hostname.replace(/^([^.]+)/, "$1-8000");
+      return `${protocol}//${wsHost}${cleanPath}`;
+    }
+
+    // If explicit absolute URL in NEXT_PUBLIC_API_BASE, derive host from it
+    if (process.env.NEXT_PUBLIC_API_BASE?.startsWith("http")) {
+      try {
+        const parsed = new URL(process.env.NEXT_PUBLIC_API_BASE);
+        const wsProto = parsed.protocol === "https:" ? "wss:" : "ws:";
+        return `${wsProto}//${parsed.host}${cleanPath}`;
+      } catch {
+        // fallback to standard host derivation
+      }
+    }
+
+    // Standard local or intranet host: connect directly to backend on port 8000
+    const host = hostname || "127.0.0.1";
+    return `${protocol}//${host}:8000${cleanPath}`;
+  }
+
+  // 3. Server-side environment
+  const rawBackend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+  const base = rawBackend.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
   return `${base}${cleanPath}`;
 }
 
