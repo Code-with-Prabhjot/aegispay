@@ -1,0 +1,56 @@
+{
+  "$schema": "https://apimatic.io/schemas/codegen-settings.json",
+  "meta": {
+    "title": "AegisPay Autonomous Escrow API",
+    "version": "1.0.0",
+    "description": "Multi-agent autonomous financial escrow, AST sandboxing, and verified settlement engine for PayPal AI Hackathon.",
+    "specFile": "../backend/apimatic_validation/aegispay_api.openapi.yaml"
+  },
+  "codegenSettings": {
+    "engineVersion": "v3",
+    "validation": {
+      "ruleset": "recommended",
+      "strictMode": true,
+      "failOnWarning": false,
+      "treatMissingOperationIdAsWarning": true
+    },
+    "security": {
+      "defaultAuth": "APIKeyHeader",
+      "authTypes": [
+        {
+          "name": "APIKeyHeader",
+          "type": "apiKey",
+          "in": "header",
+          "paramName": "X-API-Key"
+        }
+      ]
+    },
+    "platforms": {
+      "python": {
+        "packageName": "aegispay",
+        "packageVersion": "1.0.0",
+        "clientName": "AegisPayClient",
+        "description": "Official Python client SDK for AegisPay autonomous agent escrow protocol.",
+        "author": "AegisPay Systems Team",
+        "email": "dev@aegispay.io",
+        "homepage": "https://github.com/aegispay/aegispay",
+        "usePydanticV2": true,
+        "httpClient": "httpx",
+        "enableAsync": true,
+        "generateTests": true
+      },
+      "typescript": {
+        "packageName": "@aegispay/sdk",
+        "packageVersion": "1.0.0",
+        "clientName": "AegisPayClient",
+        "description": "Official TypeScript/JavaScript client SDK for AegisPay autonomous agent escrow protocol.",
+        "author": "AegisPay Systems Team",
+        "homepage": "https://github.com/aegispay/aegispay",
+        "moduleType": "dual",
+        "httpClient": "fetch",
+        "strictNullChecks": true,
+        "generateTests": true
+      }
+    }
+  }
+}

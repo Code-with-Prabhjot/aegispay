@@ -235,3 +235,65 @@ def test_state_survives_restart(tmp_path):
         assert c2.get(f"{P}/contracts/{aid}").json()["fsm_state"] == "SETTLED_COMPLETE"
         led = c2.get(f"{P}/ledger").json()
         assert led["balances"]["platform_fee_revenue"] == 750_000
+
+
+
+def test_health_extended(env):
+    client, _, _ = env
+    # Check /api/v1/health
+    r1 = client.get(f"{P}/health")
+    assert r1.status_code == 200
+    d1 = r1.json()
+    assert d1["status"] == "ok"
+    assert d1["database"] == "connected"
+    assert d1["ledger_balanced"] is True
+
+    # Check root /health
+    r2 = client.get("/health")
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["status"] == "ok"
+    assert d2["database"] == "connected"
+    assert d2["ledger_balanced"] is True
+
+
+def test_vault_setup_token_and_velocity_api(env):
+    client, _, _ = env
+    buyer_did = "did:key:z6MkuSetupTest"
+    res_setup = client.post(f"{P}/vault/setup-token", json={
+        "buyer_did": buyer_did,
+        "max_amount_per_task_micros": 25_000_000,
+        "max_daily_budget_micros": 100_000_000,
+    })
+    assert res_setup.status_code == 201
+    data = res_setup.json()
+    assert data["status"] == "APPROVED"
+    assert data["buyer_did"] == buyer_did
+    assert "vault_id" in data
+
+    res_vel = client.get(f"{P}/vault/velocity/{buyer_did}")
+    assert res_vel.status_code == 200
+    vel_data = res_vel.json()
+    assert vel_data["buyer_did"] == buyer_did
+    assert vel_data["circuit_breaker_status"] == "ACTIVE"
+    assert vel_data["velocity_allowed"] is True
+
+
+def test_ledger_balance_and_accounts_api(env):
+    client, _, _ = env
+    # Seed ledger via clean_pass
+    client.post(f"{P}/demo/scenarios/clean_pass")
+
+    # Check /ledger/balance
+    res_bal = client.get(f"{P}/ledger/balance")
+    assert res_bal.status_code == 200
+    bal_data = res_bal.json()
+    assert bal_data["balanced"] is True
+    assert bal_data["net_imbalance"] == 0
+
+    # Check /ledger/accounts
+    res_accts = client.get(f"{P}/ledger/accounts")
+    assert res_accts.status_code == 200
+    accts_data = res_accts.json()
+    assert accts_data["count"] > 0
+    assert len(accts_data["accounts"]) > 0

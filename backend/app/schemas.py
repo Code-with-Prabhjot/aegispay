@@ -357,6 +357,13 @@ class AgreementDetailResponse(SlaContractResponse):
     )
 
 
+class VaultSetupTokenRequest(BaseModel):
+    buyer_did: str = Field(..., description="Ed25519 DID of the buyer agent")
+    max_amount_per_task_micros: int = Field(default=25_000_000, description="Task limit in micro-dollars ($25.00)")
+    max_daily_budget_micros: int = Field(default=100_000_000, description="Daily limit in micro-dollars ($100.00)")
+    payment_method: Optional[str] = Field(default="paypal", description="Payment method: paypal or card")
+
+
 class VaultVelocityModel(BaseModel):
     vault_id: str = Field(..., description="PayPal Vault payment token / setup token ID")
     buyer_did: str = Field(..., description="Ed25519 DID of the buyer agent")

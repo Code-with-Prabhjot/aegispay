@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegispay-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PAYPAL_MODE=mock
+      - DATABASE_URL=sqlite:///./aegispay.db
+      - API_AUTH_KEY=
+    volumes:
+      - backend-db:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - aegispay-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aegispay-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aegispay-network
+
+volumes:
+  backend-db:
+
+networks:
+  aegispay-network:
+    driver: bridge

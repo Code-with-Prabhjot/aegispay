@@ -1,0 +1,32 @@
+services:
+  # AegisPay Backend (FastAPI + PayPal Escrow + AST Sandbox + Ledger)
+  - type: web
+    name: aegispay-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PAYPAL_MODE
+        value: mock
+      - key: DATABASE_URL
+        value: sqlite:///./aegispay.db
+      - key: API_AUTH_KEY
+        generateValue: true
+
+  # AegisPay Frontend (Next.js 14 Mission Control Dashboard)
+  - type: web
+    name: aegispay-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: starter
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: aegispay-backend
+          property: host
+      - key: NODE_ENV
+        value: production

@@ -17,6 +17,19 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Mcp Manifest Root Mcp Manifest Get
+  /health:
+    get:
+      summary: Get Health Root
+      operationId: get_health_root_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Health Root Health Get
   /api/v1/health:
     get:
       summary: Health
@@ -283,6 +296,36 @@ paths:
                 title: Response Get Ledger Api V1 Ledger Get
       security:
       - APIKeyHeader: []
+  /api/v1/ledger/balance:
+    get:
+      summary: Get Ledger Balance
+      operationId: get_ledger_balance_api_v1_ledger_balance_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Ledger Balance Api V1 Ledger Balance Get
+      security:
+      - APIKeyHeader: []
+  /api/v1/ledger/accounts:
+    get:
+      summary: Get Ledger Accounts
+      operationId: get_ledger_accounts_api_v1_ledger_accounts_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Ledger Accounts Api V1 Ledger Accounts Get
+      security:
+      - APIKeyHeader: []
   /api/v1/agreements/{agreement_id}/detail:
     get:
       summary: Get Agreement Detail
@@ -453,6 +496,116 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - APIKeyHeader: []
+  /api/v1/vaults/setup-token:
+    post:
+      summary: Create Setup Token
+      operationId: create_setup_token_api_v1_vaults_setup_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultSetupTokenRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Setup Token Api V1 Vaults Setup Token Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /api/v1/vault/setup-token:
+    post:
+      summary: Create Setup Token
+      operationId: create_setup_token_api_v1_vault_setup_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultSetupTokenRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Setup Token Api V1 Vault Setup Token Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /api/v1/vaults/velocity/{buyer_did}:
+    get:
+      summary: Get Vault Velocity
+      operationId: get_vault_velocity_api_v1_vaults_velocity__buyer_did__get
+      security:
+      - APIKeyHeader: []
+      parameters:
+      - name: buyer_did
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Buyer Did
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Vault Velocity Api V1 Vaults Velocity  Buyer Did  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/vault/velocity/{buyer_did}:
+    get:
+      summary: Get Vault Velocity
+      operationId: get_vault_velocity_api_v1_vault_velocity__buyer_did__get
+      security:
+      - APIKeyHeader: []
+      parameters:
+      - name: buyer_did
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Buyer Did
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Vault Velocity Api V1 Vault Velocity  Buyer Did  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/vaults:
     post:
       summary: Create Or Update Vault
@@ -1227,6 +1380,33 @@ components:
       - msg
       - type
       title: ValidationError
+    VaultSetupTokenRequest:
+      properties:
+        buyer_did:
+          type: string
+          title: Buyer Did
+          description: Ed25519 DID of the buyer agent
+        max_amount_per_task_micros:
+          type: integer
+          title: Max Amount Per Task Micros
+          description: Task limit in micro-dollars ($25.00)
+          default: 25000000
+        max_daily_budget_micros:
+          type: integer
+          title: Max Daily Budget Micros
+          description: Daily limit in micro-dollars ($100.00)
+          default: 100000000
+        payment_method:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Payment Method
+          description: 'Payment method: paypal or card'
+          default: paypal
+      type: object
+      required:
+      - buyer_did
+      title: VaultSetupTokenRequest
     VaultVelocityModel:
       properties:
         vault_id:

@@ -1,0 +1,629 @@
+{
+  "info": {
+    "_postman_id": "aegispay-collection-v2",
+    "name": "AegisPay Collection v2.0 - Best Demo Delivery",
+    "description": "Official Postman Collection v2 for AegisPay - Autonomous Agent Escrow & Verified Settlement Engine with PayPal Vaulting v3, Ed25519 A2A Handshake, AST Hard Veto Sandbox, 7-Leaf Merkle Audit Trees, and Integer Double-Entry Ledger Invariants.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Folder 1: Health & Manifest",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "System health probe checking backend service, SQLite database connectivity, and zero-imbalance ledger invariant."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Health status is ok\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.status).to.eql(\"ok\");",
+                  "});",
+                  "",
+                  "pm.test(\"Database is connected\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.database).to.eql(\"connected\");",
+                  "});",
+                  "",
+                  "pm.test(\"Double-entry ledger is balanced\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.ledger_balanced).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/mcp/manifest",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mcp/manifest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mcp",
+                "manifest"
+              ]
+            },
+            "description": "Model Context Protocol (MCP) server manifest exposing AegisPay autonomous escrow capabilities to Claude/LLM agents."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Manifest exposes tools\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.tools).to.be.an(\"array\");",
+                  "    pm.expect(data.tools.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test(\"Defines core AegisPay autonomous tools\", function () {",
+                  "    var data = pm.response.json();",
+                  "    var toolNames = data.tools.map(function(t) { return t.name; });",
+                  "    pm.expect(toolNames).to.include(\"aegispay_propose_agreement\");",
+                  "    pm.expect(toolNames).to.include(\"aegispay_submit_deliverable\");",
+                  "    pm.expect(toolNames).to.include(\"aegispay_check_escrow_status\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Folder 2: Agent Identity & A2A Negotiation",
+      "item": [
+        {
+          "name": "POST /api/v1/a2a/verify-identity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key_hex\": \"723a821dda9fea220ba9bf00be00e9a9931a4a8edf0ed2ca9a342ffaad9b9c12\",\n  \"challenge\": {\n    \"session\": \"aegispay_m2m_session_2026\",\n    \"timestamp\": \"2026-11-06T12:00:00Z\"\n  },\n  \"signature_hex\": \"dc3f8a2efbfb0dfa7ec43b0e02c6d01546f0555f04b0a8bcd4f33290d087150be1812f259ebcc69159d3ceced4a089bdc66a890203f0e2a6943b79df1113ed06\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/a2a/verify-identity",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "a2a",
+                "verify-identity"
+              ]
+            },
+            "description": "Cryptographic Ed25519 M2M agent identity verification. Validates detached signature over canonical JSON challenge payload."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Signature cryptographically verified\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.valid).to.eql(true);",
+                  "    pm.expect(data.verified).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test(\"Agent DID verified\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.agent_id).to.include(\"did:key:\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/v1/a2a/negotiate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyer_pref\": {\n    \"max_budget_micros\": 15000000,\n    \"max_timeout_seconds\": 8.0\n  },\n  \"worker_pref\": {\n    \"min_budget_micros\": 5000000,\n    \"min_timeout_seconds\": 2.0\n  },\n  \"alpha\": 0.5,\n  \"beta\": 0.5,\n  \"auto_sign\": true,\n  \"buyer_agent_id\": \"{{buyer_did}}\",\n  \"worker_agent_id\": \"{{worker_did}}\",\n  \"task_description\": \"Implement optimal routing microservice with 100% test pass rate\",\n  \"runtime_language\": \"python\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/a2a/negotiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "a2a",
+                "negotiate"
+              ]
+            },
+            "description": "Bilateral Nash Bargaining solution for SLA terms. Solves Pareto-optimal budget and deadline, generates dual-signed SLA contract and locks PayPal authorization hold."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Negotiation reached agreement\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.status).to.eql(\"AGREEMENT_REACHED\");",
+                  "});",
+                  "",
+                  "pm.test(\"Nash utility converged on Pareto frontier\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.nash_product).to.be.above(0);",
+                  "    pm.expect(data.buyer_utility).to.be.above(0);",
+                  "    pm.expect(data.worker_utility).to.be.above(0);",
+                  "    pm.expect(data.agreed_budget_micros).to.be.within(5000000, 15000000);",
+                  "});",
+                  "",
+                  "pm.test(\"Saves agreement_id to environment\", function () {",
+                  "    var data = pm.response.json();",
+                  "    var aid = data.agreement_id || (data.offer && data.offer.contract_id);",
+                  "    pm.expect(aid).to.be.ok;",
+                  "    pm.environment.set(\"agreement_id\", aid);",
+                  "    if (data.auth_id) {",
+                  "        pm.environment.set(\"auth_id\", data.auth_id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Folder 3: PayPal Escrow & Vaulting",
+      "item": [
+        {
+          "name": "POST /api/v1/vault/setup-token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"buyer_did\": \"{{buyer_did}}\",\n  \"max_amount_per_task_micros\": 25000000,\n  \"max_daily_budget_micros\": 100000000,\n  \"payment_method\": \"paypal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/vault/setup-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vault",
+                "setup-token"
+              ]
+            },
+            "description": "Creates a PayPal Vault v3 setup token binding buyer agent DID to automated pre-authorized payment credentials."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Vault setup token approved\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.status).to.eql(\"APPROVED\");",
+                  "    pm.expect(data.vault_id).to.be.a(\"string\");",
+                  "    pm.expect(data.buyer_did).to.eql(pm.environment.get(\"buyer_did\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/vault/velocity/{{buyer_did}}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/vault/velocity/{{buyer_did}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vault",
+                "velocity",
+                "{{buyer_did}}"
+              ]
+            },
+            "description": "Inspects buyer agent velocity limits, rolling 24-hour spend, and circuit-breaker status."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Velocity circuit breaker is ACTIVE\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.circuit_breaker_status).to.eql(\"ACTIVE\");",
+                  "    pm.expect(data.velocity_allowed).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test(\"Velocity thresholds are configured\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.max_amount_per_task_micros).to.be.above(0);",
+                  "    pm.expect(data.max_daily_budget_micros).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Folder 4: Execution, AST Hard Veto & Merkle Proofs",
+      "item": [
+        {
+          "name": "POST /api/v1/contracts/{{agreement_id}}/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source_code\": \"def solve(): return 42\\n\",\n  \"test_suite\": \"def test_solution(): assert solve() == 42\\n\",\n  \"runtime\": \"python\",\n  \"semantic_score\": 1.0\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/contracts/{{agreement_id}}/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contracts",
+                "{{agreement_id}}",
+                "submit"
+              ]
+            },
+            "description": "Submits candidate deliverable to isolated sandbox. Triggers AST Hard Veto security audit, runs test assertions, blends composite score S, and captures PayPal authorization hold."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Escrow executed and reached terminal/capture state\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect([\"SETTLED_COMPLETE\", \"PAYPAL_CAPTURED\", \"PAYOUT_DISPATCHED\"]).to.include(data.fsm_state);",
+                  "});",
+                  "",
+                  "pm.test(\"Save capture_id to environment\", function () {",
+                  "    var data = pm.response.json();",
+                  "    if (data.paypal_capture_id) {",
+                  "        pm.environment.set(\"capture_id\", data.paypal_capture_id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/contracts/{{agreement_id}}/detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/contracts/{{agreement_id}}/detail",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contracts",
+                "{{agreement_id}}",
+                "detail"
+              ]
+            },
+            "description": "Retrieves comprehensive contract state: AST audit breakdown, 7-leaf Merkle root, rolling hash chain head, and balanced double-entry journal legs."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"7-leaf Merkle tree audit bundle generated\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.merkle_root).to.be.a(\"string\");",
+                  "    pm.expect(data.merkle_root.length).to.eql(64);",
+                  "    pm.expect(data.audit_bundle).to.be.an(\"object\");",
+                  "    pm.expect(data.audit_bundle.leaves.length).to.eql(7);",
+                  "    pm.environment.set(\"merkle_root\", data.merkle_root);",
+                  "});",
+                  "",
+                  "pm.test(\"Double-entry ledger journal legs present\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.ledger_journal).to.be.an(\"array\");",
+                  "    pm.expect(data.ledger_journal.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/contracts/{{agreement_id}}/merkle-proof/0",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/contracts/{{agreement_id}}/merkle-proof/0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contracts",
+                "{{agreement_id}}",
+                "merkle-proof",
+                "0"
+              ]
+            },
+            "description": "Cryptographic proof of inclusion for leaf 0 (agreement terms). Returns sibling hashes and verifies root reconstruction."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Merkle inclusion proof is cryptographically valid\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.verified).to.eql(true);",
+                  "    pm.expect(data.leaf_index).to.eql(0);",
+                  "    pm.expect(data.merkle_root).to.eql(pm.environment.get(\"merkle_root\"));",
+                  "    pm.expect(data.proof_hashes).to.be.an(\"array\");",
+                  "    pm.expect(data.proof_hashes.length).to.eql(3);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Folder 5: Double-Entry Ledger Invariants",
+      "item": [
+        {
+          "name": "GET /api/v1/ledger/balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ledger/balance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ledger",
+                "balance"
+              ]
+            },
+            "description": "Mathematical balance conservation audit: guarantees total debits minus total credits equals exactly zero across all micro-dollar accounts."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Double-entry invariant holds: debits - credits == 0\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.balanced).to.eql(true);",
+                  "    pm.expect(data.net_imbalance).to.eql(0);",
+                  "    pm.expect(data.total_debits_micros).to.eql(data.total_credits_micros);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/ledger/accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ledger/accounts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ledger",
+                "accounts"
+              ]
+            },
+            "description": "Lists chart of accounts and real-time integer micro-dollar balances for buyer vault, escrow hold, worker payable, and revenue."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Chart of accounts returned\", function () {",
+                  "    var data = pm.response.json();",
+                  "    pm.expect(data.accounts).to.be.an(\"array\");",
+                  "    pm.expect(data.count).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

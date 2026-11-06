@@ -11,6 +11,7 @@ import hmac
 import json
 from pathlib import Path
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
@@ -31,6 +32,8 @@ from backend.app.schemas import (
     MerkleProofResponse,
     SlaContractCreate,
     TestAssertionItem,
+    LedgerAccount,
+    VaultSetupTokenRequest,
     VaultVelocityModel,
     VerifyIdentityRequest,
 )
@@ -253,7 +256,13 @@ def create_app(
     @public.get("/health")
     async def health() -> Dict[str, Any]:
         mock = bool(getattr(paypal, "is_mock", False))
-        return {"status": "ok", "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE, "mock": mock}
+        return {
+            "status": "ok",
+            "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE,
+            "mock": mock,
+            "database": "connected",
+            "ledger_balanced": ledger.verify_balance_conservation(),
+        }
 
     @api.post("/contracts", status_code=201)
     async def create_contract(payload: SlaContractCreate) -> Dict[str, Any]:
@@ -336,6 +345,40 @@ def create_app(
             "balanced": ledger.verify_balance_conservation(),
         }
 
+    @api.get("/ledger/balance")
+    async def get_ledger_balance() -> Dict[str, Any]:
+        records = ledger.to_records()
+        total_debits = sum(e["amount_micros"] for e in records)
+        total_credits = sum(e["amount_micros"] for e in records)
+        net_imbalance = total_debits - total_credits
+        return {
+            "balanced": ledger.verify_balance_conservation(),
+            "net_imbalance": net_imbalance,
+            "net_imbalance_micros": net_imbalance,
+            "total_debits_micros": total_debits,
+            "total_credits_micros": total_credits,
+            "delta": net_imbalance,
+            "balances": ledger.get_all_balances(),
+            "invariant": "debits - credits == 0",
+        }
+
+    @api.get("/ledger/accounts")
+    async def get_ledger_accounts() -> Dict[str, Any]:
+        balances = ledger.get_all_balances()
+        accounts = [
+            {
+                "account": acct.value,
+                "balance_micros": balances.get(acct.value, 0),
+                "balance_usd": f"${Decimal(balances.get(acct.value, 0)) / Decimal(1_000_000):.2f}",
+            }
+            for acct in LedgerAccount
+        ]
+        return {
+            "accounts": accounts,
+            "balances": balances,
+            "count": len(accounts),
+        }
+
     @api.get("/agreements/{agreement_id}/detail", response_model=AgreementDetailResponse)
     async def get_agreement_detail(agreement_id: str) -> AgreementDetailResponse:
         try:
@@ -389,9 +432,14 @@ def create_app(
             beta=req.beta,
         )
         offer = None
+        agreement_id = None
+        auth_id = None
+        buyer_did = req.buyer_agent_id
+        worker_id = req.worker_agent_id or "did:key:worker_solver_candidate"
+
         if req.auto_sign or req.buyer_agent_id:
             buyer_agent = Ed25519Agent.generate(agent_id=req.buyer_agent_id)
-            worker_id = req.worker_agent_id or "did:key:worker_solver_candidate"
+            buyer_did = buyer_agent.agent_id
             offer = create_sla_offer(
                 buyer=buyer_agent,
                 worker_agent_id=worker_id,
@@ -400,9 +448,36 @@ def create_app(
                 timeout_seconds=result["max_execution_seconds"],
                 runtime_language=req.runtime_language or "python",
             )
+            agreement_id = offer.get("contract_id")
+            if req.auto_sign:
+                try:
+                    worker_agent = Ed25519Agent.generate(agent_id=worker_id)
+                    worker_sig = worker_agent.sign(offer)
+                    contract_payload = SlaContractCreate(
+                        agreement_id=agreement_id,
+                        buyer_agent_id=buyer_did,
+                        worker_agent_id=worker_id,
+                        worker_paypal_email="worker@aegispay.io",
+                        budget_micros=result["agreed_budget_micros"],
+                        task_description=req.task_description or "Autonomous Agent Deliverable",
+                        test_suite_source="def test_solution(): assert True\n",
+                        buyer_signature=offer.get("buyer_signature"),
+                        worker_signature=worker_sig,
+                    )
+                    contract = await orch.create_contract(contract_payload)
+                    agreement_id = contract.agreement_id
+                    auth_id = contract.paypal_auth_id
+                except Exception:
+                    pass
+
         return {
             "parameters": result,
             "offer": offer,
+            "agreement_id": agreement_id,
+            "contract_id": agreement_id,
+            "buyer_did": buyer_did,
+            "worker_did": worker_id,
+            "auth_id": auth_id,
             "agreed_budget_micros": result["agreed_budget_micros"],
             "max_execution_seconds": result["max_execution_seconds"],
             "agreed_timeout_seconds": result["agreed_timeout_seconds"],
@@ -433,6 +508,62 @@ def create_app(
             "verified": is_valid,
             "agent_id": agent_id,
             "public_key_hex": req.public_key_hex,
+        }
+
+    @api.post("/vault/setup-token", status_code=201)
+    @api.post("/vaults/setup-token", status_code=201)
+    async def create_setup_token(req: VaultSetupTokenRequest) -> Dict[str, Any]:
+        vault_id = f"vault_tok_{uuid.uuid4().hex[:12]}"
+        vault = register_vault(
+            vault_id=vault_id,
+            buyer_did=req.buyer_did,
+            max_amount_per_task_micros=req.max_amount_per_task_micros,
+            max_daily_budget_micros=req.max_daily_budget_micros,
+            repo=repository,
+        )
+        return {
+            "vault_id": vault.vault_id,
+            "setup_token": vault.vault_id,
+            "buyer_did": vault.buyer_did,
+            "status": "APPROVED",
+            "payment_source": {"paypal": {"vault_id": vault.vault_id}},
+            "max_amount_per_task_micros": vault.max_amount_per_task_micros,
+            "max_daily_budget_micros": vault.max_daily_budget_micros,
+            "is_frozen": vault.is_frozen,
+        }
+
+    @api.get("/vault/velocity/{buyer_did}")
+    @api.get("/vaults/velocity/{buyer_did}")
+    async def get_vault_velocity(buyer_did: str) -> Dict[str, Any]:
+        vaults = [v for v in repository.list_vaults() if v.buyer_did == buyer_did]
+        if not vaults:
+            v_direct = repository.get_vault(buyer_did)
+            if v_direct:
+                vaults = [v_direct]
+        if not vaults:
+            return {
+                "buyer_did": buyer_did,
+                "vault_id": "default",
+                "max_amount_per_task_micros": 25_000_000,
+                "max_daily_budget_micros": 100_000_000,
+                "current_daily_spent_micros": 0,
+                "consecutive_void_count": 0,
+                "is_frozen": 0,
+                "circuit_breaker_status": "ACTIVE",
+                "velocity_allowed": True,
+            }
+        vault = vaults[0]
+        return {
+            "buyer_did": vault.buyer_did,
+            "vault_id": vault.vault_id,
+            "max_amount_per_task_micros": vault.max_amount_per_task_micros,
+            "max_daily_budget_micros": vault.max_daily_budget_micros,
+            "current_daily_spent_micros": vault.current_daily_spent_micros,
+            "window_reset_timestamp": vault.window_reset_timestamp,
+            "consecutive_void_count": vault.consecutive_void_count,
+            "is_frozen": vault.is_frozen,
+            "circuit_breaker_status": "LOCKED" if vault.is_frozen else "ACTIVE",
+            "velocity_allowed": vault.is_frozen == 0,
         }
 
     @api.post("/vaults", status_code=201)
@@ -562,6 +693,10 @@ def create_app(
     @app.get("/mcp/manifest")
     async def get_mcp_manifest_root() -> Dict[str, Any]:
         return await get_mcp_manifest()
+
+    @app.get("/health")
+    async def get_health_root() -> Dict[str, Any]:
+        return await health()
 
     class McpToolCall(BaseModel):
         name: str

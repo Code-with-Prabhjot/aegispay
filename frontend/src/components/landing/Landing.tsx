@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Logo from "./Logo";
 import { settle, usd, useCount, useInView, useReveal } from "./landingLib";
 import "./landing.css";
@@ -141,11 +141,10 @@ function Stat({ to, prefix = "", suffix = "", label, dec = 0 }: { to: number; pr
 }
 
 export default function Landing() {
-  const router = useRouter();
   useReveal();
   const [active, setActive] = useState(0);
   const [scrolled, setScrolled] = useState(false);
-  const [isLaunching, setIsLaunching] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
@@ -163,10 +162,8 @@ export default function Landing() {
     };
   }, []);
 
-  const go = () => router.push("/dashboard");
-  const handleLaunch = () => {
-    setIsLaunching(true);
-    router.push("/dashboard");
+  const scrollToHowItWorks = () => {
+    document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" });
   };
 
   return (
@@ -174,11 +171,28 @@ export default function Landing() {
       <header className={`nav ${scrolled ? "solid" : ""}`}>
         <a className="brand" href="#"><Logo /> AegisPay</a>
         <nav>
-          <a href="#how">How it works</a>
+          <a
+            href="#how-it-works"
+            onClick={(e) => {
+              e.preventDefault();
+              scrollToHowItWorks();
+            }}
+          >
+            How it works
+          </a>
           <a href="#features">Features</a>
           <a href="#try">Try it</a>
         </nav>
-        <button className="btn sm" onClick={go}>Open dashboard</button>
+        <Link
+          href="/dashboard"
+          prefetch={true}
+          className="btn sm"
+          onClick={() => setIsNavigating(true)}
+          aria-busy={isNavigating}
+        >
+          Open dashboard
+          {isNavigating && <span className="spinner-sm" aria-label="Loading dashboard..." />}
+        </Link>
       </header>
 
       <section className="hero">
@@ -193,8 +207,27 @@ export default function Landing() {
           </h1>
           <p>AegisPay holds the money in a PayPal authorization, tests the delivered code, then captures exactly what it earned. Nothing more, nothing less.</p>
           <div className="cta">
-            <button className="btn" onClick={go}>Get started <span>→</span></button>
-            <a className="btn ghost" href="#how">See how it works</a>
+            <Link
+              href="/dashboard"
+              prefetch={true}
+              className="btn"
+              onClick={() => setIsNavigating(true)}
+              aria-busy={isNavigating}
+            >
+              Launch Mission Control{" "}
+              {isNavigating ? (
+                <span className="spinner-sm" aria-label="Loading dashboard..." />
+              ) : (
+                <span>→</span>
+              )}
+            </Link>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={scrollToHowItWorks}
+            >
+              See how it works
+            </button>
           </div>
         </div>
         <HeroCard />
@@ -213,7 +246,7 @@ export default function Landing() {
         <Stat to={0} label="unbalanced ledger entries" />
       </section>
 
-      <section id="how" className="how">
+      <section id="how-it-works" className="how">
         <div className="how-l">
           <span className="eyebrow reveal">How it works</span>
           <h2 className="reveal">Four steps from <em>promise</em> to payout.</h2>
@@ -265,19 +298,20 @@ export default function Landing() {
         <div className="blob b3" />
         <h2>Ready to watch an escrow settle?</h2>
         <p>Run three preset scenarios in the live dashboard: a clean pass, a partial defect and a malicious injection.</p>
-        <button
+        <Link
+          href="/dashboard"
+          prefetch={true}
           className="btn light"
-          onClick={handleLaunch}
-          disabled={isLaunching}
-          aria-busy={isLaunching}
+          onClick={() => setIsNavigating(true)}
+          aria-busy={isNavigating}
         >
           Launch Mission Control{" "}
-          {isLaunching ? (
+          {isNavigating ? (
             <span className="spinner-sm" aria-label="Loading dashboard..." />
           ) : (
             <span>→</span>
           )}
-        </button>
+        </Link>
       </section>
 
       <footer>

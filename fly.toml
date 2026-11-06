@@ -1,0 +1,28 @@
+# fly.toml app configuration file for AegisPay
+# Run: fly launch / fly deploy
+
+app = "aegispay"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PAYPAL_MODE = "mock"
+  DATABASE_URL = "sqlite:///./aegispay.db"
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"

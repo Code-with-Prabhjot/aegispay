@@ -1,0 +1,51 @@
+{
+  "id": "aegispay-environment-v2",
+  "name": "AegisPay Environment",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "agreement_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "buyer_did",
+      "value": "did:key:z6MkuBuyerAegisPay",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "worker_did",
+      "value": "did:key:z6MkuWorkerAegisPay",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "auth_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "capture_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "merkle_root",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2026-11-06T18:48:00.000Z",
+  "_postman_exported_using": "Postman/11.0.0"
+}
