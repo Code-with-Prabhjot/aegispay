@@ -698,6 +698,11 @@ def create_app(
     async def get_health_root() -> Dict[str, Any]:
         return await health()
 
+    @api.get("/mcp/tools", include_in_schema=False)
+    async def get_mcp_tools() -> Dict[str, Any]:
+        from backend.app.services.mcp_agent_tools import MCP_JSONRPC_TOOLS
+        return {"tools": MCP_JSONRPC_TOOLS}
+
     class McpToolCall(BaseModel):
         name: str
         arguments: Dict[str, Any]
@@ -705,12 +710,12 @@ def create_app(
     @api.post("/mcp/execute")
     async def execute_mcp_tool(call: McpToolCall) -> Dict[str, Any]:
         try:
-            if call.name == "aegispay_propose_agreement":
+            if call.name in ("aegispay_propose_agreement", "propose_contract"):
                 payload = SlaContractCreate(**call.arguments)
                 contract = await orch.create_contract(payload)
                 return {"result": contract_detail(contract)}
 
-            elif call.name == "aegispay_submit_deliverable":
+            elif call.name in ("aegispay_submit_deliverable", "submit_deliverable"):
                 contract = await orch.submit_work(
                     agreement_id=call.arguments["agreement_id"],
                     source_code=call.arguments["source_code"],
@@ -719,11 +724,38 @@ def create_app(
                 )
                 return {"result": contract_detail(contract)}
 
-            elif call.name == "aegispay_check_escrow_status":
+            elif call.name in ("aegispay_check_escrow_status", "check_escrow_status"):
                 agreement_id = call.arguments["agreement_id"]
                 contract = orch.get(agreement_id)
                 detail = build_agreement_detail_response(contract, repository, ledger)
                 return {"result": detail.model_dump(mode="json")}
+
+            elif call.name in ("aegispay_verify_audit_proof", "verify_audit_proof"):
+                agreement_id = call.arguments["agreement_id"]
+                leaf_index = int(call.arguments.get("leaf_index", 0))
+                contract = orch.get(agreement_id)
+                bundle = compile_7leaf_bundle(contract, repo=repository, ledger=ledger)
+                tree: MerkleAuditTree = bundle["tree"]
+                proof = tree.get_proof(leaf_index)
+                leaf_data = bundle["leaves"][leaf_index]
+                leaf_hash = bundle["leaf_hashes"][leaf_index]
+                leaf_name = bundle["leaf_names"][leaf_index]
+                verified = verify_merkle_proof(leaf_index, leaf_data, proof, tree.root_hash)
+                return {
+                    "result": {
+                        "agreement_id": agreement_id,
+                        "leaf_index": leaf_index,
+                        "leaf_name": leaf_name,
+                        "leaf_hash": leaf_hash,
+                        "proof_hashes": proof,
+                        "merkle_root": tree.root_hash,
+                        "verified": verified,
+                    }
+                }
+
+            elif call.name in ("tools/list", "get_tools"):
+                from backend.app.services.mcp_agent_tools import MCP_JSONRPC_TOOLS
+                return {"result": {"tools": MCP_JSONRPC_TOOLS}}
 
             else:
                 raise HTTPException(404, f"Unknown MCP tool '{call.name}'")
@@ -731,6 +763,23 @@ def create_app(
             raise HTTPException(422, f"Invalid arguments for MCP tool '{call.name}': {exc}")
         except Exception as exc:
             raise _handle(exc)
+
+    @api.post("/mcp/rpc", include_in_schema=False)
+    @app.post("/mcp/rpc", include_in_schema=False)
+    async def mcp_jsonrpc_endpoint(req: Dict[str, Any]) -> Dict[str, Any]:
+        rpc_id = req.get("id")
+        method = req.get("method")
+        if method == "tools/list":
+            from backend.app.services.mcp_agent_tools import MCP_JSONRPC_TOOLS
+            return {"jsonrpc": "2.0", "id": rpc_id, "result": {"tools": MCP_JSONRPC_TOOLS}}
+        if method == "tools/call":
+            params = req.get("params", {})
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            call_obj = McpToolCall(name=tool_name, arguments=tool_args)
+            exec_res = await execute_mcp_tool(call_obj)
+            return {"jsonrpc": "2.0", "id": rpc_id, "result": exec_res["result"]}
+        raise HTTPException(400, f"Unsupported JSON-RPC method '{method}'")
 
     async def _ws_ledger_handler(websocket: WebSocket) -> None:
         # Browsers do not apply CORS to WebSockets, so check the Origin here, and the key like REST.

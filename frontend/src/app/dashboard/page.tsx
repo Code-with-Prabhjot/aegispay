@@ -2,18 +2,53 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import Background from "@/components/landing/Background";
 import Logo from "@/components/landing/Logo";
-import EscrowLedgerGrid from "@/components/EscrowLedgerGrid";
 import FsmTimeline from "@/components/FsmTimeline";
 import LedgerPanel from "@/components/LedgerPanel";
-import CodeMutationStudio from "@/components/CodeMutationStudio";
 import VaultManagementModal from "@/components/VaultManagementModal";
 import { API_BASE } from "@/lib/api";
 import { microsToUsd } from "@/lib/format";
 import type { ScenarioName } from "@/lib/types";
 import { useAegis } from "@/lib/useAegis";
 import "@/components/landing/landing.css";
+
+const EscrowLedgerGrid = dynamic(() => import("@/components/EscrowLedgerGrid"), {
+  ssr: false,
+  loading: () => (
+    <div
+      role="status"
+      aria-label="Loading Escrow Ledger Grid"
+      className="flex flex-col gap-3 p-4 w-full h-[400px] rounded-lg animate-pulse"
+      style={{
+        background: "rgba(11, 17, 32, 0.6)",
+        border: "1px solid rgba(0, 240, 255, 0.2)",
+        backdropFilter: "blur(16px)",
+      }}
+    >
+      <div className="flex items-center justify-between pb-3 border-b border-cyan-500/20">
+        <div className="h-4 w-36 bg-cyan-500/30 rounded" />
+        <div className="h-4 w-24 bg-cyan-500/20 rounded" />
+      </div>
+      <div className="flex-1 flex flex-col gap-2.5 justify-around py-2">
+        <div className="h-8 w-full bg-slate-800/60 rounded border border-cyan-500/10" />
+        <div className="h-8 w-full bg-slate-800/40 rounded border border-cyan-500/10" />
+        <div className="h-8 w-full bg-slate-800/60 rounded border border-cyan-500/10" />
+        <div className="h-8 w-full bg-slate-800/40 rounded border border-cyan-500/10" />
+        <div className="h-8 w-full bg-slate-800/50 rounded border border-cyan-500/10" />
+      </div>
+      <div className="flex justify-between items-center pt-2 border-t border-cyan-500/20 text-xs text-cyan-400/70 font-mono">
+        <span>Initializing AG Grid Engine...</span>
+        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+      </div>
+    </div>
+  ),
+});
+
+const CodeMutationStudio = dynamic(() => import("@/components/CodeMutationStudio"), {
+  ssr: false,
+});
 
 const SCENARIOS = [
   {
