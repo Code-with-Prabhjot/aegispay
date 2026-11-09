@@ -255,11 +255,16 @@ def create_app(
     @public.get("/health")
     async def health() -> Dict[str, Any]:
         mock = bool(getattr(paypal, "is_mock", False))
+        try:
+            repository.db.query("SELECT 1")
+            db_status = "connected"
+        except Exception:
+            db_status = "unavailable"
         return {
-            "status": "ok",
+            "status": "ok" if db_status == "connected" else "degraded",
             "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE,
             "mock": mock,
-            "database": "connected",
+            "database": db_status,
             "ledger_balanced": ledger.verify_balance_conservation(),
         }
 

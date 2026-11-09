@@ -65,3 +65,12 @@ def test_cors_origins_are_configurable(tmp_path):
         assert "access-control-allow-origin" not in r.headers
 
 
+# ------------------------------------------------------------------------- health checks the DB
+def test_health_reports_a_dead_database(tmp_path):
+    client, app = app_client(tmp_path)
+    with client:
+        with mock.patch.object(app.state.repo.db, "query", side_effect=RuntimeError("gone")):
+            body = client.get(f"{P}/health").json()
+    assert body["database"] == "unavailable" and body["status"] == "degraded"
+
+
