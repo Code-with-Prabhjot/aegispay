@@ -119,6 +119,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_bypass_outside_test_modes(self) -> "Settings":
+        # Anything other than these three used to fall through to the LIVE PayPal API.
+        if self.PAYPAL_MODE.strip().lower() not in ("mock", "sandbox", "live"):
+            raise ValueError(
+                f"PAYPAL_MODE must be 'mock', 'sandbox' or 'live', got {self.PAYPAL_MODE!r}"
+            )
         if self.PAYPAL_WEBHOOK_MOCK_BYPASS and not (self.is_sandbox or self.is_mock):
             raise ValueError("PAYPAL_WEBHOOK_MOCK_BYPASS is only allowed with PAYPAL_MODE=mock or sandbox")
         return self

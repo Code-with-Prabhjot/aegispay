@@ -208,7 +208,8 @@ def test_mock_engine_still_verifies_when_bypass_is_off(tmp_path):
 
 @pytest.mark.parametrize("mode", ["live", "production"])
 def test_bypass_flag_rejected_outside_mock_and_sandbox(mode):
-    with pytest.raises(ValueError, match="PAYPAL_WEBHOOK_MOCK_BYPASS"):
+    # "production" is not a valid mode at all, so it is refused by the PAYPAL_MODE check first.
+    with pytest.raises(ValueError, match="PAYPAL_WEBHOOK_MOCK_BYPASS|PAYPAL_MODE"):
         Settings(_env_file=None, PAYPAL_MODE=mode, PAYPAL_WEBHOOK_MOCK_BYPASS=True)
 
 

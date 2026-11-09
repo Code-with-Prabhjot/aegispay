@@ -49,3 +49,9 @@ def test_root_mcp_rpc_is_gone_and_api_copy_needs_the_key(tmp_path):
         assert client.get(f"{P}/contracts", headers=H).json()["count"] == 0
 
 
+# ------------------------------------------------------------------------- PAYPAL_MODE validation
+def test_misspelled_paypal_mode_is_rejected_instead_of_going_live():
+    with pytest.raises(ValueError, match="PAYPAL_MODE"):
+        settings(PAYPAL_MODE="sandbx")
+
+
