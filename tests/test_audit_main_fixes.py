@@ -151,3 +151,18 @@ def test_velocity_of_an_unknown_buyer_is_not_reported_as_allowed(tmp_path):
         assert client.get(f"{P}/vault/velocity/did:key:nobody").status_code == 404
 
 
+# ------------------------------------------------------------- vault window rollover accounting
+def test_releasing_a_hold_from_a_previous_window_does_not_eat_the_new_window(tmp_path):
+    repo = Repository.from_url(f"sqlite:///{tmp_path}/v.db")
+    t0 = 1_800_000_000
+    register_vault("v", "b", max_daily_budget_micros=100_000_000, max_amount_per_task_micros=50_000_000,
+                   repo=repo)
+    reserve_vault_funds("v", 5_000_000, repo=repo, now_epoch=t0)
+    t1 = t0 + 86_400 + 60  # the 24h window has rolled over
+    reserve_vault_funds("v", 7_000_000, repo=repo, now_epoch=t1)
+    release_vault_funds("v", 5_000_000, repo=repo, reserved_at_epoch=t0)
+    assert repo.get_vault("v").current_daily_spent_micros == 7_000_000
+    release_vault_funds("v", 7_000_000, repo=repo, reserved_at_epoch=t1)
+    assert repo.get_vault("v").current_daily_spent_micros == 0
+
+

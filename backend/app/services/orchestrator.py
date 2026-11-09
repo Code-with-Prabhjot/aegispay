@@ -37,6 +37,7 @@ from backend.app.services.vault_service import (
     check_vault_allowance,
     record_vault_settlement,
     release_vault_funds,
+    reservation_epoch,
     reserve_vault_funds,
 )
 
@@ -345,7 +346,8 @@ class EscrowOrchestrator:
         vault_id = getattr(c, "vault_id", None)
         if not vault_id:
             return
-        release_vault_funds(vault_id, c.budget_micros, repo=self.repo)
+        release_vault_funds(vault_id, c.budget_micros, repo=self.repo,
+                            reserved_at_epoch=reservation_epoch(c))
         if is_void and not penalize:
             return
         record_vault_settlement(

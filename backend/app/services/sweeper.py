@@ -32,7 +32,7 @@ from backend.app.services.merkle_audit import (
     compute_transition_hash,
 )
 from backend.app.services.orchestrator import SETTLEMENT_PENDING_STATES, extract_authorization_id
-from backend.app.services.vault_service import release_vault_funds
+from backend.app.services.vault_service import release_vault_funds, reservation_epoch
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +378,8 @@ class ReauthorizationSweeper:
                 description=f"72h sweeper void: hold released to buyer ({c.agreement_id})",
             )
             if c.vault_id:  # the hold's reservation against the daily budget ends with it
-                release_vault_funds(c.vault_id, c.budget_micros, repo=self.repo)
+                release_vault_funds(c.vault_id, c.budget_micros, repo=self.repo,
+                                    reserved_at_epoch=reservation_epoch(c))
 
         # Record in cryptographic audit hash chain
         prev_hash = c.hash_chain_head or compute_genesis_hash(c.agreement_id)

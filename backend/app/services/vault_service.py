@@ -126,15 +126,39 @@ def reserve_vault_funds(
     r.save_vault(vault)
 
 
+WINDOW_SECONDS = 86400
+
+
+def reservation_epoch(contract: Any) -> Optional[int]:
+    """When a contract's hold was reserved against its vault: the moment it reached
+    PAYPAL_AUTH_LOCKED (create_contract and the authorization webhook both reserve then)."""
+    for t in getattr(contract, "transitions", None) or []:
+        if getattr(t, "to_state", None) == fsm.FsmState.PAYPAL_AUTH_LOCKED:
+            return int(t.created_at.timestamp())
+    created = getattr(contract, "created_at", None)
+    return int(created.timestamp()) if created else None
+
+
 def release_vault_funds(
     vault_id: str,
     amount_micros: int,
     repo: Optional[Repository] = None,
+    reserved_at_epoch: Optional[int] = None,
 ) -> None:
-    """Returns a reservation made by reserve_vault_funds (the hold settled, was voided or expired)."""
+    """
+    Returns a reservation made by reserve_vault_funds (the hold settled, was voided or expired).
+    A reservation from an earlier 24h window was already wiped when the window reset, so
+    subtracting it again would eat into the new window's spend.
+    """
     r = _resolve_repo(repo)
     vault = r.get_vault(vault_id)
     if vault is None:
+        return
+    if (
+        reserved_at_epoch is not None
+        and vault.window_reset_timestamp
+        and reserved_at_epoch < vault.window_reset_timestamp - WINDOW_SECONDS
+    ):
         return
     vault.current_daily_spent_micros = max(0, vault.current_daily_spent_micros - max(0, amount_micros))
     r.save_vault(vault)
