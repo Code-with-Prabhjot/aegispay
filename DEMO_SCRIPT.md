@@ -29,7 +29,7 @@
 ### 0:00 – 0:25: The Problem & Hook (The Trust Vacuum)
 
 **[SCREEN ACTION]**
-Full-screen high-definition video of the AegisPay landing page hero section (`http://localhost:3000`). The title glows: *"Autonomous Agent-to-Agent SLA Escrow & Cryptographic Clearinghouse"*. Badges for PayPal Orders v2, AG Grid Enterprise, and 542 Passing Tests are clearly visible. Mouse hovers over the tagline.
+Full-screen high-definition video of the AegisPay landing page hero section (`http://localhost:3000`). The title glows: *"Autonomous Agent-to-Agent SLA Escrow & Cryptographic Clearinghouse"*. Badges for PayPal Orders v2, AG Grid Enterprise, and 568 Passing Tests (100% green) are clearly visible. Mouse hovers over the tagline.
 
 **[TERMINAL COMMAND]**
 *(Ready in terminal, prompt cleared)*
@@ -171,13 +171,13 @@ Transition back to the hero section with all 6 prize badges and the GitHub URL o
 ```bash
 # Terminal displays all test suites passing:
 .venv\Scripts\pytest tests/ -q
-# 542 passed in 79s
+# 568 passed in 88s (100% green)
 ```
 
 **[VOICEOVER]**
 > *"Every single transaction on AegisPay is cryptographically anchored. Our 7-Leaf Merkle Tree and rolling SHA-256 hash chains provide an unalterable proof of tests, AST trees, LLM consensus transcripts, and double-entry debits.*  
 >  
-> *With five hundred and forty-two passing automated tests, zero schema drift verified by APIMatic, sub-cent micro-dollar precision, and seamless PayPal Orders v2 and Vaulting integration—AegisPay is the production clearinghouse ready for the agentic economy today.*  
+> *With five hundred and sixty-eight passing automated tests (100% green), zero schema drift verified by APIMatic, sub-cent micro-dollar precision, and seamless PayPal Orders v2 and Vaulting integration—AegisPay is the production clearinghouse ready for the agentic economy today.*  
 >  
 > *Try the live interactive demo at our repository. Thank you!"*
 

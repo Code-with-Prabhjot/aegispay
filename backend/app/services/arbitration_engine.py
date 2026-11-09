@@ -807,11 +807,14 @@ class ArbitrationArbiter:
         runtime: Optional[str] = None,
     ) -> ArbitrationReport:
         """
-        Full end-to-end arbitration evaluation:
+        Primary production arbitration method invoked by the orchestrator (`orchestrator.py`).
+        Executes full end-to-end arbitration:
         1. Runs AST Security Scan (Python or JS/TS).
         2. Executes sandboxed test runner (pytest or node).
-        3. Computes composite score with AST Hard Veto.
-        4. Calculates financial settlement split.
+        3. Computes composite score using the active production formula:
+           S = 0.50 * S_tests + 0.25 * S_ast + 0.25 * S_consensus
+           (Strictly subject to AST Hard Veto: if S_ast == 0.0, S is locked to 0.00).
+        4. Calculates integer micro-dollar financial settlement split.
         """
         target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
         is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")
@@ -919,10 +922,18 @@ class ArbitrationArbiter:
         runtime: Optional[str] = None,
     ) -> ArbitrationReport:
         """
-        Adversarial Dual-Model Consensus Arbitration Engine (Day 5 & Day 6):
-        Computes composite score: S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
+        Legacy arbitration evaluation helper (Day 5 & Day 6 milestone formula).
+        Retained for backwards compatibility, standalone research experiments, and specific
+        unit tests (`tests/test_consensus_and_mcp.py`).
+
+        Computes composite score using the legacy formula:
+            S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
         Strictly enforces Hard Veto Rule:
-        If S_AST == 0.0, S is locked to 0.00 immediately, bypassing test execution and LLM costs.
+            If S_AST == 0.0, S is locked to 0.00 immediately, bypassing test execution and LLM costs.
+
+        NOTE: The orchestrator uses `evaluate()` as the authoritative active production scoring
+        method, which enforces the active formula:
+            S = 0.50 * S_tests + 0.25 * S_ast + 0.25 * S_consensus
         """
         target_runtime = self.detect_runtime(worker_code, buyer_test_code, runtime)
         is_node = target_runtime in ("javascript", "typescript", "js", "ts", "node")

@@ -27,3 +27,7 @@ Thumbs.db
 
 # Local SQLite dev databases
 *.db
+
+# Temporary patch and update scripts
+patch_*.py
+update_*.py

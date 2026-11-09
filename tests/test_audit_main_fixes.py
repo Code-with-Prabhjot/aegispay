@@ -128,8 +128,10 @@ def test_health_reports_a_dead_database(tmp_path):
     client, app = app_client(tmp_path)
     with client:
         with mock.patch.object(app.state.repo.db, "query", side_effect=RuntimeError("gone")):
-            body = client.get(f"{P}/health").json()
-    assert body["database"] == "unavailable" and body["status"] == "degraded"
+            resp = client.get(f"{P}/health")
+            assert resp.status_code == 503
+            body = resp.json()
+    assert body["database"] == "disconnected" and body["status"] == "degraded"
 
 
 # ----------------------------------------------------------------------------- vault route guards

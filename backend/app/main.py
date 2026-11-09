@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, ValidationError
 
@@ -260,18 +261,23 @@ def create_app(
     @public.get("/health")
     async def health() -> Dict[str, Any]:
         mock = bool(getattr(paypal, "is_mock", False))
+        audit = ledger.audit_balances()
+        ledger_balanced = bool(audit.get("balanced", False))
         try:
             repository.db.query("SELECT 1")
             db_status = "connected"
         except Exception:
-            db_status = "unavailable"
-        return {
+            db_status = "disconnected"
+
+        status_code = 200 if db_status == "connected" else 503
+        content = {
             "status": "ok" if db_status == "connected" else "degraded",
             "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE,
             "mock": mock,
             "database": db_status,
-            "ledger_balanced": ledger.verify_balance_conservation(),
+            "ledger_balanced": ledger_balanced,
         }
+        return JSONResponse(status_code=status_code, content=content)
 
     @api.post("/contracts", status_code=201)
     async def create_contract(payload: SlaContractCreate) -> Dict[str, Any]:

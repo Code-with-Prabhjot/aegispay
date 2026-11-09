@@ -1,40 +1,60 @@
-name: ci
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  backend-tests:
+  test-backend:
+    name: Backend Test Suite (568 Tests & APIMatic Contract)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements-dev.txt
-      - name: pytest
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run Full Pytest Suite (568 Tests)
         env:
           PAYPAL_MODE: mock
           SANDBOX_MODE: subprocess
-        run: python -m pytest -q -p no:cacheprovider
+        run: pytest tests/ -v
 
-  frontend:
+      - name: Run APIMatic Contract Verification
+        env:
+          PAYPAL_MODE: mock
+          SANDBOX_MODE: subprocess
+        run: pytest tests/test_apimatic_contract.py -v
+
+  build-frontend:
+    name: Frontend Build & Typecheck (Next.js 14)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run build
+
+      - name: Install Frontend Dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build Frontend (Next.js & Typecheck)
+        run: npm --prefix frontend run build

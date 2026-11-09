@@ -115,7 +115,26 @@ AegisPay is built from the ground up as a zero-compromise, enterprise-grade dist
 
 ---
 
-## 6. Sponsor Track Technical Justifications
+## 6. Execution Modes: Mock vs. Sandbox
+
+AegisPay provides dual-mode operational transparency designed for frictionless evaluation and live production deployment:
+
+1. **Deterministic Mock Mode (`PAYPAL_MODE=mock` — Default):**
+   - Enabled by default in `.env.example` to allow judges, automated CI workflows, and peer evaluators to execute instantaneous, deterministic 0-dependency tests without network flakiness, rate limits, or external credential setup.
+   - All simulated transaction payloads follow exact PayPal Orders v2 (`fake-auth-...`), Payments v2 (`fake-cap-...`, `fake-void-...`), and Payouts v1 (`fake-payout-...`) schemas.
+   - Powers the entire 568-test automated suite (100% green).
+
+2. **Live PayPal Sandbox Platform (`PAYPAL_MODE=sandbox`):**
+   - Flipping `PAYPAL_MODE=sandbox` and inserting standard `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env` connects AegisPay directly to the live PayPal developer platform (`https://api-m.sandbox.paypal.com`).
+   - Executes authentic OAuth2 client-credential token exchanges, real authorization holds, captures, voids, and batch payouts against sandbox accounts.
+   - **Diagnostic Verification:** Evaluators can inspect and verify live PayPal Sandbox connectivity at any time using our built-in diagnostic tool:
+     ```bash
+     python scripts/verify_paypal_sandbox.py
+     ```
+
+---
+
+## 7. Sponsor Track Technical Justifications
 
 ### Best Use of PayPal + AI ($5,000)
 AegisPay represents the pinnacle of combining PayPal's enterprise payment APIs with generative and deterministic AI:
@@ -156,7 +175,7 @@ AegisPay utilized APIMatic to ensure rigorous OpenAPI contract compliance:
 
 ---
 
-## 7. What's Next for AegisPay
+## 8. What's Next for AegisPay
 
 1. **Production PayPal Live Launch:** Migrate from PayPal Developer Sandbox to Live Merchant credentials for real-world enterprise deployments.
 2. **Multi-Party Agent Swarms:** Extend the Nash Bargaining algorithm to support N-way multi-agent DAG workflows where a lead contractor agent subcontracts sub-tasks to specialized sub-agents with hierarchical escrow holds.

@@ -1,5 +1,6 @@
 # AegisPay: Autonomous Agent-to-Agent SLA Escrow & Cryptographic Clearinghouse
 
+[![CI](https://github.com/Code-with-Prabhjot/aegispay/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![Test Suite](https://img.shields.io/badge/Test%20Suite-568%2F568%20Passing%20(100%25)-00C853?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2%20(App%20Router)-000000?style=for-the-badge&logo=next.js&logoColor=white)](frontend/)
@@ -26,10 +27,11 @@
    - [Rolling State Hash Chain Formulation](#4-rolling-state-hash-chain-formulation)
 5. [The 6 Immutable Financial & Security Invariants](#the-6-immutable-financial--security-invariants)
 6. [Core Microservices & Directory Structure](#core-microservices--directory-structure)
-7. [Quickstart & Demo Instructions](#quickstart--demo-instructions)
-8. [Automated E2E Scenario Runner (3 Test Scenarios)](#automated-e2e-scenario-runner-3-test-scenarios)
-9. [Verification & Test Coverage](#verification--test-coverage)
-10. [License & Acknowledgments](#license--acknowledgments)
+7. [Execution Modes: Mock vs. Sandbox](#execution-modes-mock-vs-sandbox)
+8. [Quickstart & Demo Instructions](#quickstart--demo-instructions)
+9. [Automated E2E Scenario Runner (3 Test Scenarios)](#automated-e2e-scenario-runner-3-test-scenarios)
+10. [Verification & Test Coverage](#verification--test-coverage)
+11. [License & Acknowledgments](#license--acknowledgments)
 
 ---
 
@@ -360,6 +362,26 @@ AegisPay/
     ├── test_consensus_and_mcp.py
     └── test_settlement_math.py        # Micro-Dollar Mathematical Invariants
 ```
+
+---
+
+## Execution Modes: Mock vs. Sandbox
+
+AegisPay is engineered with dual-mode operational transparency, ensuring deterministic evaluations for hackathon judges while maintaining full production readiness against PayPal's live developer infrastructure:
+
+1. **Deterministic Mock Mode (`PAYPAL_MODE=mock` — Default):**
+   - Enabled out-of-the-box in `.env.example` (`PAYPAL_MODE=mock`).
+   - Allows hackathon judges, automated CI runners, and peer evaluators to execute instantaneous, deterministic 0-dependency tests without network flakiness, rate limits, or external credential setup.
+   - Generates deterministic simulated PayPal IDs adhering strictly to PayPal Orders v2 (`fake-auth-...`), Payments v2 (`fake-cap-...`, `fake-void-...`), and Batch Payouts v1 (`fake-payout-...`) schemas.
+   - Powers all 568 automated unit, integration, and security tests with 100% green pass rate.
+
+2. **Live PayPal Sandbox Platform (`PAYPAL_MODE=sandbox`):**
+   - Flipping `PAYPAL_MODE=sandbox` and inserting standard `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env` binds AegisPay directly to the live PayPal developer platform (`https://api-m.sandbox.paypal.com`).
+   - Conducts genuine OAuth2 `client_credentials` exchanges, authentic authorization reservations, partial captures, void releases, and batch mass payouts.
+   - **Diagnostic Verification:** Evaluators can inspect and verify live PayPal Sandbox connectivity at any time using our built-in diagnostic tool:
+     ```bash
+     python scripts/verify_paypal_sandbox.py
+     ```
 
 ---
 
