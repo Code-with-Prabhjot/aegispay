@@ -68,6 +68,8 @@ class DoubleEntryLedgerEngine:
         self._broadcaster = broadcaster  # optional LedgerConnectionManager for real-time WebSocket events
         self._entries: List[DoubleEntryLedgerEntry] = []
         self._balances: Dict[str, int] = {acc: 0 for acc in self.ALLOWED_ACCOUNTS}
+        # External money that entered each account; the journal is replayed on top of it to audit balances.
+        self._deposits: Dict[str, int] = {acc: 0 for acc in self.ALLOWED_ACCOUNTS}
 
         if initial_balances:
             for acc, amount in initial_balances.items():
@@ -76,6 +78,7 @@ class DoubleEntryLedgerEngine:
                 if amount < 0:
                     raise NegativeBalanceError(f"Initial balance for '{acc}' cannot be negative: {amount}")
                 self._balances[acc] = amount
+                self._deposits[acc] = amount
 
     def set_broadcaster(self, broadcaster: Any) -> None:
         """Sets or updates the real-time event broadcaster."""
@@ -91,6 +94,7 @@ class DoubleEntryLedgerEngine:
             e = row["entry"]
             if row["kind"] == "DEPOSIT":
                 engine._balances[e.debit_account] += e.amount_micros
+                engine._deposits[e.debit_account] += e.amount_micros
             else:
                 engine._balances[e.debit_account] += e.amount_micros
                 engine._balances[e.credit_account] -= e.amount_micros
@@ -135,6 +139,7 @@ class DoubleEntryLedgerEngine:
                 kind="DEPOSIT",
             )
         self._balances[account] += amount_micros
+        self._deposits[account] += amount_micros
         if self._broadcaster:
             self._broadcaster.broadcast_sync({
                 "event_type": "LEDGER_TRANSACTION",
@@ -338,13 +343,41 @@ class DoubleEntryLedgerEngine:
 
         return self.record_transaction(entries)
 
+    def audit_balances(self) -> Dict[str, Any]:
+        """
+        Independently re-derives every account balance from the deposits plus the journal and
+        compares it with the running balances. Every transfer moves money between two internal
+        accounts, so the sum of all balances must equal the money deposited from outside.
+        """
+        replayed = dict(self._deposits)
+        for e in self._entries:
+            replayed[e.debit_account] = replayed.get(e.debit_account, 0) + e.amount_micros
+            replayed[e.credit_account] = replayed.get(e.credit_account, 0) - e.amount_micros
+        drift = {
+            acc: self._balances.get(acc, 0) - replayed.get(acc, 0)
+            for acc in set(self._balances) | set(replayed)
+            if self._balances.get(acc, 0) != replayed.get(acc, 0)
+        }
+        negative = {acc: bal for acc, bal in self._balances.items() if bal < 0}
+        total_deposited = sum(self._deposits.values())
+        total_balance = sum(self._balances.values())
+        net_imbalance = total_balance - total_deposited
+        return {
+            "balanced": net_imbalance == 0 and not drift and not negative,
+            "net_imbalance_micros": net_imbalance,
+            "total_deposited_micros": total_deposited,
+            "total_balance_micros": total_balance,
+            "total_transferred_micros": sum(e.amount_micros for e in self._entries),
+            "account_drift_micros": drift,
+            "negative_accounts": negative,
+        }
+
     def verify_balance_conservation(self) -> bool:
         """
-        Auditing verification: confirms that total debits == total credits across all entries.
+        True when the running balances match a replay of deposits + journal, no account is
+        negative, and the balances sum to the money deposited (nothing created or lost).
         """
-        total_debits = sum(e.amount_micros for e in self._entries)
-        total_credits = sum(e.amount_micros for e in self._entries)
-        return total_debits == total_credits
+        return self.audit_balances()["balanced"]
 
     def to_records(self) -> List[Dict[str, Any]]:
         """

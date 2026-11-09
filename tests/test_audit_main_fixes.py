@@ -49,6 +49,40 @@ def test_root_mcp_rpc_is_gone_and_api_copy_needs_the_key(tmp_path):
         assert client.get(f"{P}/contracts", headers=H).json()["count"] == 0
 
 
+# ---------------------------------------------------------------------- ledger balance is a real audit
+def test_ledger_audit_detects_a_tampered_balance():
+    ledger = DoubleEntryLedgerEngine()
+    ledger.deposit("buyer_vault", 10_000_000, "a1")
+    ledger.record_transfer("paypal_escrow_hold", "buyer_vault", 10_000_000, "a1")
+    assert ledger.verify_balance_conservation()
+    ledger._balances["worker_payable"] += 1  # money appears from nowhere
+    audit = ledger.audit_balances()
+    assert audit["balanced"] is False
+    assert audit["net_imbalance_micros"] == 1
+    assert audit["account_drift_micros"] == {"worker_payable": 1}
+
+
+def test_ledger_audit_survives_a_reload(tmp_path):
+    repo = Repository.from_url(f"sqlite:///{tmp_path}/l.db")
+    ledger = DoubleEntryLedgerEngine.from_repository(repo)
+    ledger.deposit("buyer_vault", 5_000_000, "a1")
+    ledger.record_transfer("paypal_escrow_hold", "buyer_vault", 5_000_000, "a1")
+    reloaded = DoubleEntryLedgerEngine.from_repository(repo)
+    assert reloaded.audit_balances()["balanced"] is True
+    assert reloaded.audit_balances()["total_deposited_micros"] == 5_000_000
+
+
+def test_ledger_balance_endpoint_reports_drift(tmp_path):
+    client, app = app_client(tmp_path)
+    with client:
+        client.post(f"{P}/demo/scenarios/clean_pass")
+        ok = client.get(f"{P}/ledger/balance").json()
+        assert ok["balanced"] is True and ok["net_imbalance"] == 0
+        app.state.ledger._balances["platform_fee_revenue"] += 7
+        bad = client.get(f"{P}/ledger/balance").json()
+        assert bad["balanced"] is False and bad["net_imbalance"] == 7
+
+
 # ------------------------------------------------------------------------- PAYPAL_MODE validation
 def test_misspelled_paypal_mode_is_rejected_instead_of_going_live():
     with pytest.raises(ValueError, match="PAYPAL_MODE"):

@@ -351,19 +351,22 @@ def create_app(
 
     @api.get("/ledger/balance")
     async def get_ledger_balance() -> Dict[str, Any]:
-        records = ledger.to_records()
-        total_debits = sum(e["amount_micros"] for e in records)
-        total_credits = sum(e["amount_micros"] for e in records)
-        net_imbalance = total_debits - total_credits
+        # Each journal row is one debit and one equal credit, so comparing their totals proves
+        # nothing. Instead re-derive every balance from deposits + journal and compare.
+        audit = ledger.audit_balances()
+        net_imbalance = audit["net_imbalance_micros"]
         return {
-            "balanced": ledger.verify_balance_conservation(),
+            "balanced": audit["balanced"],
             "net_imbalance": net_imbalance,
             "net_imbalance_micros": net_imbalance,
-            "total_debits_micros": total_debits,
-            "total_credits_micros": total_credits,
+            "total_deposited_micros": audit["total_deposited_micros"],
+            "total_balance_micros": audit["total_balance_micros"],
+            "total_transferred_micros": audit["total_transferred_micros"],
+            "account_drift_micros": audit["account_drift_micros"],
+            "negative_accounts": audit["negative_accounts"],
             "delta": net_imbalance,
             "balances": ledger.get_all_balances(),
-            "invariant": "debits - credits == 0",
+            "invariant": "sum(balances) == sum(deposits) and balances == replay(deposits + journal)",
         }
 
     @api.get("/ledger/accounts")
