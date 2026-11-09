@@ -1,6 +1,7 @@
 """Regression tests for the defects found in the audit of main at c1964a9."""
 
 import subprocess
+from types import SimpleNamespace
 import time
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -281,3 +282,93 @@ def test_ws_ticket_is_null_without_a_key(tmp_path):
     client, _ = app_client(tmp_path)
     with client:
         assert client.get(f"{P}/ws-ticket").json()["ticket"] is None
+
+
+# --------------------------------------------------- Multi-Model Telemetry Serialization
+def test_dual_consensus_telemetry_extracted_in_arbitration_report():
+    from backend.app.services.llm_judge import DualConsensusArbiter, JudgeResult
+
+    class MockJudge:
+        def __init__(self, score, rationale=""):
+            self.score = score
+            self.rationale = rationale
+
+        def judge(self, _):
+            return JudgeResult(self.score, self.rationale)
+
+    consensus_arb = DualConsensusArbiter(
+        gemini_judge=MockJudge(0.92, "Gemini OK"),
+        claude_judge=MockJudge(0.88, "Claude OK"),
+    )
+    arbiter = ArbitrationArbiter(
+        judge=consensus_arb,
+        runner=SimpleNamespace(run_tests=lambda **k: (1, 1, "test_01 PASSED"), _parse_test_assertions=lambda stdout: []),
+    )
+    report = arbiter.evaluate("agr_telemetry_1", "def deliverable(): pass", "def test_deliverable(): pass")
+    assert report.gemini_score == 0.92
+    assert report.claude_score == 0.88
+    assert report.divergence == pytest.approx(0.04)
+    assert report.divergence_penalty_applied is False
+
+    # Test divergence penalty
+    divergent_consensus = DualConsensusArbiter(
+        gemini_judge=MockJudge(0.95, "Gemini OK"),
+        claude_judge=MockJudge(0.60, "Claude Low"),
+    )
+    arbiter_div = ArbitrationArbiter(
+        judge=divergent_consensus,
+        runner=SimpleNamespace(run_tests=lambda **k: (1, 1, "test_01 PASSED"), _parse_test_assertions=lambda stdout: []),
+    )
+    report_div = arbiter_div.evaluate("agr_telemetry_2", "def deliverable(): pass", "def test_deliverable(): pass")
+    assert report_div.gemini_score == 0.95
+    assert report_div.claude_score == 0.60
+    assert report_div.divergence == pytest.approx(0.35)
+    assert report_div.divergence_penalty_applied is True
+
+
+def test_contracts_submit_and_detail_serialize_multi_model_telemetry(tmp_path):
+    from backend.app.services.llm_judge import DualConsensusArbiter, JudgeResult
+
+    class MockJudge:
+        def __init__(self, score, rationale=""):
+            self.score = score
+            self.rationale = rationale
+
+        def judge(self, _):
+            return JudgeResult(self.score, self.rationale)
+
+    consensus = DualConsensusArbiter(
+        gemini_judge=MockJudge(0.96, "Gemini high"),
+        claude_judge=MockJudge(0.91, "Claude high"),
+    )
+    client, app = app_client(tmp_path)
+    app.state.orchestrator.arbiter.judge = consensus
+
+    with client:
+        # Create contract
+        c_res = client.post(f"{P}/contracts", json=api_body())
+        assert c_res.status_code == 201
+        agr_id = c_res.json()["agreement_id"]
+
+        # Submit deliverable
+        submit_res = client.post(
+            f"{P}/contracts/{agr_id}/submit",
+            json={"source_code": "def deliverable(): pass", "test_suite": "def test_deliverable(): pass"},
+        )
+        assert submit_res.status_code == 200
+        submit_data = submit_res.json()
+        assert submit_data["gemini_score"] == 0.96
+        assert submit_data["claude_score"] == 0.91
+        assert submit_data["divergence"] == pytest.approx(0.05)
+        assert submit_data["divergence_penalty_applied"] is False
+        assert submit_data["arbitration_report"]["gemini_score"] == 0.96
+
+        # Fetch contract detail
+        detail_res = client.get(f"{P}/contracts/{agr_id}/detail")
+        assert detail_res.status_code == 200
+        detail_data = detail_res.json()
+        assert detail_data["gemini_score"] == 0.96
+        assert detail_data["claude_score"] == 0.91
+        assert detail_data["divergence"] == pytest.approx(0.05)
+        assert detail_data["divergence_penalty_applied"] is False
+        assert detail_data["arbitration_report"]["gemini_score"] == 0.96

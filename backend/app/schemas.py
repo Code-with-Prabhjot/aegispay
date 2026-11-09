@@ -272,6 +272,10 @@ class SlaContractResponse(BaseModel):
     merkle_root: Optional[str] = Field(default=None, description="7-leaf Merkle root hash upon settlement")
     buyer_signature: Optional[str] = Field(default=None, description="Buyer Ed25519 signature")
     worker_signature: Optional[str] = Field(default=None, description="Worker Ed25519 signature")
+    gemini_score: Optional[float] = Field(default=None, description="Gemini 1.5 Flash judge score [0.0, 1.0]")
+    claude_score: Optional[float] = Field(default=None, description="Claude 3.5 judge score [0.0, 1.0]")
+    divergence: Optional[float] = Field(default=None, description="Model score divergence |Gemini - Claude|")
+    divergence_penalty_applied: bool = Field(default=False, description="Whether consensus divergence penalty was applied")
     test_suite_sha256: Optional[str] = Field(
         default=None, description="SHA-256 of the buyer's committed acceptance test suite"
     )
@@ -298,6 +302,10 @@ class ArbitrationReport(BaseModel):
     settlement: SettlementSplitResult = Field(..., description="Calculated financial settlement split")
     test_assertions: list["TestAssertionItem"] = Field(default_factory=list, description="List of individual test assertions")
     scanned_imports: list[str] = Field(default_factory=list, description="All module imports parsed from code")
+    gemini_score: Optional[float] = Field(default=None, description="Gemini 1.5 Flash judge score [0.0, 1.0]")
+    claude_score: Optional[float] = Field(default=None, description="Claude 3.5 judge score [0.0, 1.0]")
+    divergence: Optional[float] = Field(default=None, description="Model score divergence |Gemini - Claude|")
+    divergence_penalty_applied: bool = Field(default=False, description="Whether consensus divergence penalty was applied")
 
 
 class TestAssertionItem(BaseModel):

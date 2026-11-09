@@ -31,6 +31,10 @@ class JudgeResult:
 
     score: float
     rationale: Optional[str] = None
+    gemini_score: Optional[float] = None
+    claude_score: Optional[float] = None
+    divergence: Optional[float] = None
+    divergence_penalty_applied: bool = False
 
 
 @runtime_checkable
@@ -349,7 +353,14 @@ class DualConsensusArbiter:
             f"(Gemini: {audit['gemini_score']}, Claude: {audit['claude_score']}, "
             f"Div: {audit['divergence']:.4f}, Pen: {audit['divergence_penalty_applied']})"
         )
-        return JudgeResult(score=audit["consensus_score"], rationale=rationale)
+        return JudgeResult(
+            score=audit["consensus_score"],
+            rationale=rationale,
+            gemini_score=audit["gemini_score"],
+            claude_score=audit["claude_score"],
+            divergence=audit["divergence"],
+            divergence_penalty_applied=audit["divergence_penalty_applied"],
+        )
 
     async def judge_async(self, source_code: str) -> JudgeResult:
         audit = await self.evaluate_consensus(source_code)
@@ -358,7 +369,14 @@ class DualConsensusArbiter:
             f"(Gemini: {audit['gemini_score']}, Claude: {audit['claude_score']}, "
             f"Div: {audit['divergence']:.4f}, Pen: {audit['divergence_penalty_applied']})"
         )
-        return JudgeResult(score=audit["consensus_score"], rationale=rationale)
+        return JudgeResult(
+            score=audit["consensus_score"],
+            rationale=rationale,
+            gemini_score=audit["gemini_score"],
+            claude_score=audit["claude_score"],
+            divergence=audit["divergence"],
+            divergence_penalty_applied=audit["divergence_penalty_applied"],
+        )
 
 
 def get_semantic_judge(settings: Any) -> SemanticJudge:

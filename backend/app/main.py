@@ -104,6 +104,15 @@ def contract_detail(c: fsm.ContractRecord) -> Dict[str, Any]:
     data["authorized_at"] = c.authorized_at.isoformat() if c.authorized_at else None
     data["transitions"] = [t.to_dict() for t in c.transitions]
     data["arbitration_report"] = c.report
+    if c.report and isinstance(c.report, dict):
+        if c.report.get("gemini_score") is not None:
+            data["gemini_score"] = c.report.get("gemini_score")
+        if c.report.get("claude_score") is not None:
+            data["claude_score"] = c.report.get("claude_score")
+        if c.report.get("divergence") is not None:
+            data["divergence"] = c.report.get("divergence")
+        if "divergence_penalty_applied" in c.report:
+            data["divergence_penalty_applied"] = c.report.get("divergence_penalty_applied")
     return data
 
 
@@ -171,6 +180,11 @@ def build_agreement_detail_response(
 
     base["merkle_root"] = merkle_root
     base["hash_chain_head"] = hash_chain_head
+    if report:
+        base["gemini_score"] = report.get("gemini_score")
+        base["claude_score"] = report.get("claude_score")
+        base["divergence"] = report.get("divergence")
+        base["divergence_penalty_applied"] = report.get("divergence_penalty_applied", False)
 
     return AgreementDetailResponse(
         **base,
@@ -179,6 +193,10 @@ def build_agreement_detail_response(
         ledger_journal=journal_legs,
         transitions=[t.to_dict() for t in c.transitions],
         arbitration_report=c.report,
+
+
+
+
         audit_bundle=clean_bundle,
     )
 

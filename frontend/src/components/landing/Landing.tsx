@@ -140,7 +140,134 @@ function Stat({ to, prefix = "", suffix = "", label, dec = 0 }: { to: number; pr
   );
 }
 
+
+function Ed25519IdentityModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  if (!isOpen) return null;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-2xl rounded-2xl border border-cyan-500/40 bg-[#070e28] p-6 shadow-[0_0_50px_rgba(0,229,255,0.25)] text-slate-100"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between pb-4 border-b border-cyan-500/20">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-cyan-950 border border-cyan-400/40 text-cyan-300 text-lg">
+              🛡️
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                A2A Protocol &amp; Cryptographic Identity
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/30 text-cyan-300">
+                  W3C did:key Ed25519
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 font-mono">
+                Decentralized Machine-to-Machine SLA Handshake with Nash Bargaining
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          {/* Identity Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 rounded-xl border border-cyan-500/25 bg-slate-900/60 font-mono">
+              <div className="flex items-center justify-between text-cyan-300 font-bold mb-1">
+                <span>Buyer Agent Identity</span>
+                <span className="text-[10px] text-emerald-400">✓ DID Key Verified</span>
+              </div>
+              <div className="text-[11px] text-slate-400 break-all">
+                did:key:z6MkuV8w3R9XzK7nL4e2mQpW5yJ1aB8c
+              </div>
+              <div className="mt-2 text-[10px] text-slate-500 flex justify-between border-t border-slate-800 pt-1">
+                <span>Curve: Ed25519</span>
+                <span>Role: Task Submitter</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-violet-500/25 bg-slate-900/60 font-mono">
+              <div className="flex items-center justify-between text-violet-300 font-bold mb-1">
+                <span>Worker Agent Identity</span>
+                <span className="text-[10px] text-emerald-400">✓ DID Key Verified</span>
+              </div>
+              <div className="text-[11px] text-slate-400 break-all">
+                did:key:z6Mks4p8T2yQ1vW9bN6jR3mK0cE5fX8z
+              </div>
+              <div className="mt-2 text-[10px] text-slate-500 flex justify-between border-t border-slate-800 pt-1">
+                <span>Curve: Ed25519</span>
+                <span>Role: Solver Node</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Nash Bargaining Parameters */}
+          <div className="p-3.5 rounded-xl border border-cyan-500/20 bg-slate-950/70 font-mono text-xs">
+            <div className="text-cyan-300 font-bold mb-2 flex items-center justify-between">
+              <span>Nash Bargaining Solution (Pareto Frontier)</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30">
+                Nash Product: 0.2500
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+              <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Agreed Budget (B*)</span>
+                <span className="text-cyan-300 font-bold text-sm">$15.00</span>
+              </div>
+              <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Execution Timeout (T*)</span>
+                <span className="text-cyan-300 font-bold text-sm">2.00s</span>
+              </div>
+              <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Price Elasticity (α)</span>
+                <span className="text-slate-200 font-bold text-sm">0.50</span>
+              </div>
+              <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Urgency Weight (β)</span>
+                <span className="text-slate-200 font-bold text-sm">0.50</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Dual Signature Sealed SLA */}
+          <div className="p-3 rounded-xl border border-slate-800 bg-slate-900/40 text-[11px] font-mono flex items-center justify-between text-slate-300">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Dual-Signed SLA Canonical Hash: <code className="text-cyan-300">a9f8...4d2e</code>
+            </span>
+            <span className="text-emerald-400 font-bold">100% Sealed</span>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-between pt-4 border-t border-cyan-500/20">
+          <span className="text-xs text-slate-400 font-mono">
+            Zero Upfront Escrow via PayPal Orders v2
+          </span>
+          <Link
+            href="/dashboard"
+            className="btn sm"
+            onClick={onClose}
+          >
+            <span>Enter Mission Control →</span>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Landing() {
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
   useReveal();
   const [active, setActive] = useState(0);
   const [scrolled, setScrolled] = useState(false);
@@ -292,6 +419,20 @@ export default function Landing() {
         </div>
         <h2 className="reveal center">See how the score moves the money.</h2>
         <Calculator />
+        <div className="reveal center mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setShowIdentityModal(true)}
+            className="btn ghost sm border border-cyan-500/40 text-cyan-300 font-mono text-xs hover:bg-cyan-500/15 transition-all flex items-center gap-2"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00e5ff]" />
+            <span>View Architecture &amp; Ed25519 Identity</span>
+          </button>
+        </div>
+        <Ed25519IdentityModal
+          isOpen={showIdentityModal}
+          onClose={() => setShowIdentityModal(false)}
+        />
       </section>
 
       <section className="final reveal">

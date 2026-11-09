@@ -805,6 +805,7 @@ class ArbitrationArbiter:
         platform_fee_bps: int = 500,
         paypal_payout_fee_micros: int = 250_000,
         runtime: Optional[str] = None,
+        consensus_arbiter: Optional[Any] = None,
     ) -> ArbitrationReport:
         """
         Primary production arbitration method invoked by the orchestrator (`orchestrator.py`).
@@ -824,6 +825,10 @@ class ArbitrationArbiter:
             worker_code, buyer_test_code, is_node
         )
         s_ast = 1.0 if is_safe else 0.0
+        gemini_score: Optional[float] = None
+        claude_score: Optional[float] = None
+        divergence: Optional[float] = None
+        divergence_penalty_applied: bool = False
 
         # 2. Test Execution
         # If security scan found malicious code, we do NOT execute untrusted code on host
@@ -858,15 +863,58 @@ class ArbitrationArbiter:
 
         # 3. Semantic Rubric
         rationale: Optional[str] = None
+        gemini_score: Optional[float] = None
+        claude_score: Optional[float] = None
+        divergence: Optional[float] = None
+        divergence_penalty_applied: bool = False
+        arb = consensus_arbiter or getattr(self, "consensus_arbiter", None) or self.judge
         if semantic_score is not None:
             s_semantic = semantic_score
         else:
-            if is_node and isinstance(self.judge, HeuristicJudge):
+            if is_node and isinstance(arb, HeuristicJudge):
                 s_semantic = self.compute_semantic_rubric(worker_code, runtime=target_runtime)
             else:
-                judged = self.judge.judge(worker_code)
+                judged = arb.judge(worker_code)
                 s_semantic = judged.score
-                rationale = judged.rationale
+                rationale = getattr(judged, "rationale", None) if not isinstance(judged, dict) else judged.get("rationale")
+                gemini_score = getattr(judged, "gemini_score", None) if not isinstance(judged, dict) else judged.get("gemini_score")
+                claude_score = getattr(judged, "claude_score", None) if not isinstance(judged, dict) else judged.get("claude_score")
+                divergence = getattr(judged, "divergence", None) if not isinstance(judged, dict) else judged.get("divergence")
+                divergence_penalty_applied = getattr(judged, "divergence_penalty_applied", False) if not isinstance(judged, dict) else judged.get("divergence_penalty_applied", False)
+
+        audit = getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+        if audit and isinstance(audit, dict):
+            if gemini_score is None:
+                gemini_score = audit.get("gemini_score")
+            if claude_score is None:
+                claude_score = audit.get("claude_score")
+            if divergence is None:
+                divergence = audit.get("divergence")
+            if not divergence_penalty_applied:
+                divergence_penalty_applied = audit.get("divergence_penalty_applied", False)
+
+        if rationale and (gemini_score is None or claude_score is None):
+            m = re.search(r"Gemini:\s*([0-9.]+),\s*Claude:\s*([0-9.]+)", rationale)
+            if m:
+                if gemini_score is None:
+                    try:
+                        gemini_score = float(m.group(1))
+                    except ValueError:
+                        pass
+                if claude_score is None:
+                    try:
+                        claude_score = float(m.group(2))
+                    except ValueError:
+                        pass
+            m_div = re.search(r"Div:\s*([0-9.]+)", rationale)
+            if m_div and divergence is None:
+                try:
+                    divergence = float(m_div.group(1))
+                except ValueError:
+                    pass
+            m_pen = re.search(r"Pen:\s*(True|False)", rationale)
+            if m_pen and not divergence_penalty_applied:
+                divergence_penalty_applied = m_pen.group(1) == "True"
         s_semantic = max(0.0, min(1.0, s_semantic))
         if rationale:
             stdout = f"{stdout}\n[semantic judge rationale] {rationale}"
@@ -907,6 +955,10 @@ class ArbitrationArbiter:
             settlement=settlement_result,
             test_assertions=test_assertions,
             scanned_imports=scanned_imports,
+            gemini_score=gemini_score,
+            claude_score=claude_score,
+            divergence=divergence,
+            divergence_penalty_applied=divergence_penalty_applied,
         )
 
     def arbitrate(
@@ -918,8 +970,8 @@ class ArbitrationArbiter:
         semantic_score: Optional[float] = None,
         platform_fee_bps: int = 500,
         paypal_payout_fee_micros: int = 250_000,
-        consensus_arbiter: Optional[Any] = None,
         runtime: Optional[str] = None,
+        consensus_arbiter: Optional[Any] = None,
     ) -> ArbitrationReport:
         """
         Legacy arbitration evaluation helper (Day 5 & Day 6 milestone formula).
@@ -943,6 +995,10 @@ class ArbitrationArbiter:
             worker_code, buyer_test_code, is_node
         )
         s_ast = 1.0 if is_safe else 0.0
+        gemini_score: Optional[float] = None
+        claude_score: Optional[float] = None
+        divergence: Optional[float] = None
+        divergence_penalty_applied: bool = False
 
         if not is_safe:
             # Hard Veto: bypass test execution and LLM costs immediately
@@ -988,8 +1044,26 @@ class ArbitrationArbiter:
                 else:
                     judged = arb.judge(worker_code)
                     s_semantic = max(0.0, min(1.0, float(judged.score)))
-                    if judged.rationale:
+                    if getattr(judged, "rationale", None):
                         stdout = f"{stdout}\n[consensus arbiter rationale] {judged.rationale}"
+
+                    gemini_score = getattr(judged, "gemini_score", None) if not isinstance(judged, dict) else judged.get("gemini_score")
+                    claude_score = getattr(judged, "claude_score", None) if not isinstance(judged, dict) else judged.get("claude_score")
+                    divergence = getattr(judged, "divergence", None) if not isinstance(judged, dict) else judged.get("divergence")
+                    divergence_penalty_applied = getattr(judged, "divergence_penalty_applied", False) if not isinstance(judged, dict) else judged.get("divergence_penalty_applied", False)
+
+            audit = getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+            if audit and isinstance(audit, dict):
+                if gemini_score is None:
+                    gemini_score = audit.get("gemini_score")
+                if claude_score is None:
+                    claude_score = audit.get("claude_score")
+                if divergence is None:
+                    divergence = audit.get("divergence")
+                if not divergence_penalty_applied:
+                    divergence_penalty_applied = audit.get("divergence_penalty_applied", False)
+
+
 
             # 4. Composite Score: S = S_AST * (0.60 * S_test + 0.40 * S_semantic)
             raw_score = s_ast * ((0.60 * s_pytest) + (0.40 * s_semantic))
@@ -1020,6 +1094,10 @@ class ArbitrationArbiter:
             settlement=settlement_result,
             test_assertions=test_assertions,
             scanned_imports=scanned_imports,
+            gemini_score=gemini_score,
+            claude_score=claude_score,
+            divergence=divergence,
+            divergence_penalty_applied=divergence_penalty_applied,
         )
 
 

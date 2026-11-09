@@ -985,6 +985,29 @@ components:
           - type: 'null'
           title: Worker Signature
           description: Worker Ed25519 signature
+        gemini_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Gemini Score
+          description: Gemini 1.5 Flash judge score [0.0, 1.0]
+        claude_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Claude Score
+          description: Claude 3.5 judge score [0.0, 1.0]
+        divergence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Divergence
+          description: Model score divergence |Gemini - Claude|
+        divergence_penalty_applied:
+          type: boolean
+          title: Divergence Penalty Applied
+          description: Whether consensus divergence penalty was applied
+          default: false
         test_suite_sha256:
           anyOf:
           - type: string

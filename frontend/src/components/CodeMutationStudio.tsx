@@ -684,7 +684,17 @@ export default function CodeMutationStudio({
               {/* Dual-Model Arbiter Consensus Gauge */}
               <div className="mt-4">
                 <DualModelConsensusGauge
-                  geminiScore={executionResult.verification_score ?? undefined}
+                  geminiScore={
+                    executionResult.arbitration_report?.gemini_score ??
+                    executionResult.gemini_score ??
+                    executionResult.verification_score ??
+                    undefined
+                  }
+                  claudeScore={
+                    executionResult.arbitration_report?.claude_score ??
+                    executionResult.claude_score ??
+                    undefined
+                  }
                 />
               </div>
             </div>

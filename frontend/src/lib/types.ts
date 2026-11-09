@@ -69,6 +69,10 @@ export interface ArbitrationReport {
   ast_violations: string[];
   stdout: string;
   settlement: SettlementSplitResult;
+  gemini_score?: number | null;
+  claude_score?: number | null;
+  divergence?: number | null;
+  divergence_penalty_applied?: boolean;
 }
 
 export interface FsmTransition {
@@ -99,6 +103,10 @@ export interface SlaContractResponse {
   arbitration_report?: ArbitrationReport | null;
   merkle_root?: string | null;
   hash_chain_head?: string | null;
+  gemini_score?: number | null;
+  claude_score?: number | null;
+  divergence?: number | null;
+  divergence_penalty_applied?: boolean;
 }
 
 export interface SlaContractCreate {
@@ -184,6 +192,10 @@ export interface AgreementDetailResponse extends SlaContractResponse {
   audit_bundle?: AuditBundle | null;
   merkle_root?: string | null;
   hash_chain_head?: string | null;
+  gemini_score?: number | null;
+  claude_score?: number | null;
+  divergence?: number | null;
+  divergence_penalty_applied?: boolean;
 }
 
 export type WebSocketEventType =

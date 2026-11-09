@@ -149,6 +149,10 @@ class ContractRecord:
             buyer_signature=self.buyer_signature,
             worker_signature=self.worker_signature,
             test_suite_sha256=self.test_suite_sha256,
+            gemini_score=self.report.get("gemini_score") if self.report else None,
+            claude_score=self.report.get("claude_score") if self.report else None,
+            divergence=self.report.get("divergence") if self.report else None,
+            divergence_penalty_applied=self.report.get("divergence_penalty_applied", False) if self.report else False,
         )
 
 

@@ -72,11 +72,25 @@ export function getWebSocketUrl(path = "/ws/ledger"): string {
         // fall through to the same-origin proxy
       }
     }
-    // Otherwise go through the dashboard's own origin. The /api/v1 rewrite in next.config.mjs
-    // proxies the WebSocket upgrade to BACKEND_URL as well, so this works wherever REST works
-    // (deployed behind one host, Codespaces, Docker) without exposing port 8000.
+    const host = window.location.host;
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    // On local machine (Next.js on 3000, FastAPI on 8000), default directly to port 8000
+    // because Next.js HTTP rewrites do not proxy WebSockets.
+    if (isLocalhost) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${hostname}:8000${cleanPath}`;
+    }
+
+    // GitHub Codespaces port forwarding (-3000 subdomain to -8000)
+    if (hostname.includes("app.github.dev")) {
+      const codespaceBackend = host.replace(/-3000(\.app\.github\.dev)/, "-8000$1");
+      return `wss://${codespaceBackend}${cleanPath}`;
+    }
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}${cleanPath}`;
+    return `${protocol}//${host}${cleanPath}`;
   }
 
   // 3. Server-side environment

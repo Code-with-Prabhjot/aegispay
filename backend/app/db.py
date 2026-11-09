@@ -89,6 +89,10 @@ class Database:
         self._conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        if self.path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode = WAL")
+            self._conn.execute("PRAGMA synchronous = NORMAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._lock = threading.RLock()
         self._depth = 0
 
