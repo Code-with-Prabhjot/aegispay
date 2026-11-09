@@ -4,6 +4,8 @@ import subprocess
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from backend.app.services import arbitration_engine as ae
 from backend.app.services.arbitration_engine import (
     CodeExecutionRunner,
@@ -54,8 +56,9 @@ def test_docker_command_has_exact_hardening_flags():
     mount = cmd[cmd.index("-v") + 1]
     assert mount.endswith(":/workspace:ro")
     assert "aegispay-sandbox-runner:latest" in cmd
-    assert seen["files"] == ["deliverable.py", "test_deliverable.py"]
-    assert seen["kw"]["timeout"] == 5.0
+    assert seen["files"] == ["conftest.py", "deliverable.py", "test_deliverable.py"]
+    # The 5s test budget is enforced in the container; the outer limit adds startup grace.
+    assert seen["kw"]["timeout"] == 5.0 + ae.STARTUP_GRACE_SECONDS
     # temp dir cleaned up
     import os
 
@@ -88,9 +91,22 @@ def test_docker_timeout_kills_container_by_name():
     assert kill_cmd == ["docker", "kill", name]
 
 
-def test_docker_binary_missing_returns_failure():
+def test_docker_binary_missing_is_an_infrastructure_error_not_a_failing_score():
     with mock.patch.object(ae.subprocess, "run", side_effect=FileNotFoundError("docker")):
-        assert DockerExecutionRunner().run_tests("a", "b")[:2] == (0, 1)
+        with pytest.raises(ae.SandboxInfrastructureError):
+            DockerExecutionRunner().run_tests("a", "b")
+
+
+def test_docker_container_start_failure_is_an_infrastructure_error():
+    with mock.patch.object(ae.subprocess, "run", return_value=_cp(125, "", "image not found")):
+        with pytest.raises(ae.SandboxInfrastructureError):
+            DockerExecutionRunner().run_tests("a", "b")
+
+
+def test_docker_watchdog_exit_is_reported_as_timeout():
+    with mock.patch.object(ae.subprocess, "run", return_value=_cp(ae.TEST_TIMEOUT_EXIT_CODE, "")):
+        passed, total, out = DockerExecutionRunner().run_tests("a", "b", timeout=1.5)
+    assert (passed, total) == (0, 1) and "timed out" in out
 
 
 def test_factory_explicit_modes():

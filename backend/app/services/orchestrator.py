@@ -485,7 +485,10 @@ class EscrowOrchestrator:
         report = ArbitrationReport(
             agreement_id=c.agreement_id, s_pytest=0.0, s_ast=1.0, s_semantic=0.0, composite_score=0.0,
             passed_tests=0, total_tests=0, ast_safe=True, settlement=split,
-            stdout=f"{ARBITER_FAILURE_PREFIX} ({type(exc).__name__}): hold voided, nothing was verified or captured.",
+            stdout=(
+                f"{ARBITER_FAILURE_PREFIX} ({type(exc).__name__}): hold voided, nothing was verified "
+                f"or captured. This is not a verdict on the worker's code.\n{str(exc)[:2000]}"
+            ),
         )
         c.report = report.model_dump(mode="json")
         c.verification_score = 0.0

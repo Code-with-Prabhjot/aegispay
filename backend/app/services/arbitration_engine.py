@@ -43,6 +43,55 @@ from backend.app.services.paypal_escrow import compute_settlement_split_micros
 
 logger = logging.getLogger(__name__)
 
+# Exit code the in-sandbox watchdog uses when the tests themselves run out of time.
+TEST_TIMEOUT_EXIT_CODE = 124
+# Extra wall-clock allowance for interpreter + pytest startup (or `docker run`) before the
+# watchdog starts counting; only a hung process ever reaches this outer limit.
+STARTUP_GRACE_SECONDS = 60.0
+
+
+class SandboxInfrastructureError(RuntimeError):
+    """The runner itself could not run the tests (pytest missing, docker not startable, ...).
+    This is not the worker's fault, so it must not be scored as failing tests."""
+
+
+def _watchdog_conftest(limit_seconds: float) -> str:
+    """
+    A conftest.py that starts counting once pytest has started (conftest is imported after
+    pytest and its plugins load) and hard-exits when the tests overrun. This keeps slow
+    interpreter or container startup from being charged against the worker's time budget.
+    """
+    return (
+        "import os, threading\n"
+        f"_t = threading.Timer({float(limit_seconds)!r}, lambda: os._exit({TEST_TIMEOUT_EXIT_CODE}))\n"
+        "_t.daemon = True\n"
+        "_t.start()\n"
+    )
+
+
+def _runner_site_paths() -> List[str]:
+    """site-packages directories of this interpreter (incl. the user site on Windows, which lives
+    under %APPDATA% and is otherwise invisible to the scrubbed child), so the child finds pytest."""
+    return [p for p in sys.path if p and os.path.isdir(p) and ("site-packages" in p or "dist-packages" in p)]
+
+
+def _timeout_output(limit_seconds: float, partial: Any) -> str:
+    output = f"Execution timed out (exceeded {limit_seconds:.1f}s threshold)."
+    if partial:
+        text = partial.decode("utf-8", errors="replace") if isinstance(partial, bytes) else str(partial)
+        if text.strip():
+            output += "\nStdout before timeout:\n" + text
+    return output
+
+
+def _infrastructure_failure(output: str, returncode: int) -> Optional[str]:
+    """Returns a reason when pytest output shows the runner, not the code under test, failed."""
+    if "No module named pytest" in output:
+        return "pytest is not importable in the sandbox"
+    if returncode in (3, 4):  # pytest INTERNAL_ERROR / USAGE_ERROR
+        return f"pytest exited with code {returncode} (internal or usage error)"
+    return None
+
 
 class AstSecurityScanner(ast.NodeVisitor):
     """
@@ -287,9 +336,10 @@ class CodeExecutionRunner:
             "PATH": os.environ.get("PATH", ""),
             "TEMP": temp_dir,
             "TMP": temp_dir,
-            "PYTHONPATH": temp_dir,
+            "PYTHONPATH": os.pathsep.join([temp_dir, *_runner_site_paths()]),
             "PYTHONHASHSEED": "0",
             "PYTHONUNBUFFERED": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
 
         # Paranoid check: ensure no sensitive keys leaked through
@@ -335,6 +385,10 @@ class CodeExecutionRunner:
             with open(test_path, "w", encoding="utf-8") as f:
                 f.write(test_code)
 
+            # The time limit applies to the tests, not to interpreter/pytest startup.
+            with open(os.path.join(temp_dir, "conftest.py"), "w", encoding="utf-8") as f:
+                f.write(_watchdog_conftest(exec_timeout))
+
             # 2. Build scrubbed environment
             clean_env = self._build_scrubbed_env(temp_dir)
 
@@ -346,6 +400,10 @@ class CodeExecutionRunner:
                 test_filename,
                 "-v",
                 "--tb=short",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                temp_dir,
                 "-o",
                 "asyncio_default_fixture_loop_scope=function",
             ]
@@ -357,19 +415,21 @@ class CodeExecutionRunner:
                     env=clean_env,
                     capture_output=True,
                     text=True,
-                    timeout=exec_timeout,
+                    timeout=exec_timeout + STARTUP_GRACE_SECONDS,
                 )
-                output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-                passed, total = self._parse_pytest_output(output, proc.returncode)
-                return passed, total, output
-
             except subprocess.TimeoutExpired as exc:
-                output = f"Execution timed out (exceeded {exec_timeout:.1f}s threshold)."
-                if exc.stdout:
-                    raw = exc.stdout
-                    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-                    output += "\nStdout before timeout:\n" + text
-                return 0, 1, output
+                return 0, 1, _timeout_output(exec_timeout, exc.stdout)
+            except OSError as exc:
+                raise SandboxInfrastructureError(f"could not start the test runner: {exc}") from exc
+
+            output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            if proc.returncode == TEST_TIMEOUT_EXIT_CODE:
+                return 0, 1, _timeout_output(exec_timeout, output)
+            reason = _infrastructure_failure(output, proc.returncode)
+            if reason:
+                raise SandboxInfrastructureError(f"{reason}\n{output[-2000:]}")
+            passed, total = self._parse_pytest_output(output, proc.returncode)
+            return passed, total, output
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -482,6 +542,7 @@ class DockerExecutionRunner:
             for name, content in (
                 (deliverable_filename, worker_code),
                 (test_filename, test_code),
+                ("conftest.py", _watchdog_conftest(exec_timeout)),
             ):
                 path = os.path.join(temp_dir, name)
                 with open(path, "w", encoding="utf-8") as f:
@@ -501,21 +562,29 @@ class DockerExecutionRunner:
             ]
 
             try:
+                # The in-container watchdog enforces the test time limit; this outer limit only
+                # catches a container that never starts or never exits.
                 proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=exec_timeout
+                    cmd, capture_output=True, text=True,
+                    timeout=exec_timeout + STARTUP_GRACE_SECONDS,
                 )
             except subprocess.TimeoutExpired as exc:
                 self._kill_container(container_name)
-                output = f"Execution timed out (exceeded {exec_timeout:.1f}s threshold)."
-                if exc.stdout:
-                    raw = exc.stdout
-                    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-                    output += "\nStdout before timeout:\n" + text
-                return 0, 1, output
+                return 0, 1, _timeout_output(exec_timeout, exc.stdout)
             except OSError as exc:
-                return 0, 1, f"Docker execution failed to start: {exc}"
+                raise SandboxInfrastructureError(f"Docker execution failed to start: {exc}") from exc
 
             output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            if proc.returncode == TEST_TIMEOUT_EXIT_CODE:
+                return 0, 1, _timeout_output(exec_timeout, output)
+            # docker run exits 125/126/127 when the container itself could not be started.
+            if proc.returncode in (125, 126, 127):
+                raise SandboxInfrastructureError(
+                    f"docker run failed (exit {proc.returncode}): {output[-2000:]}"
+                )
+            reason = _infrastructure_failure(output, proc.returncode)
+            if reason:
+                raise SandboxInfrastructureError(f"{reason}\n{output[-2000:]}")
             passed, total = CodeExecutionRunner._parse_pytest_output(output, proc.returncode)
             return passed, total, output
         finally:
@@ -549,8 +618,15 @@ SubprocessCodeRunner = CodeExecutionRunner
 DockerCodeRunner = DockerExecutionRunner
 
 
-def get_execution_runner(settings: Any, timeout_seconds: float = 5.0, runtime: str = "python") -> Any:
+DEFAULT_TEST_TIMEOUT_SECONDS = 15.0
+
+
+def get_execution_runner(settings: Any, timeout_seconds: Optional[float] = None, runtime: str = "python") -> Any:
     """Selects a runner by runtime and settings.SANDBOX_MODE: docker | subprocess | auto (default)."""
+    if timeout_seconds is None:
+        configured = getattr(settings, "SANDBOX_TEST_TIMEOUT_SECONDS", None)
+        is_number = isinstance(configured, (int, float)) and not isinstance(configured, bool)
+        timeout_seconds = float(configured) if is_number and configured > 0 else DEFAULT_TEST_TIMEOUT_SECONDS
     r = runtime.strip().lower() if runtime else "python"
     if r in ("javascript", "typescript", "js", "ts", "node"):
         return NodeCodeRunner(timeout_seconds=timeout_seconds)
@@ -596,8 +672,8 @@ class ArbitrationArbiter:
     ) -> None:
         self.scanner = scanner or AstSecurityScanner()
         self.js_scanner = js_scanner or JsSecurityScanner()
-        self.runner = runner or CodeExecutionRunner(timeout_seconds=5.0)
-        self.node_runner = node_runner or NodeCodeRunner(timeout_seconds=5.0)
+        self.runner = runner or CodeExecutionRunner(timeout_seconds=DEFAULT_TEST_TIMEOUT_SECONDS)
+        self.node_runner = node_runner or NodeCodeRunner(timeout_seconds=DEFAULT_TEST_TIMEOUT_SECONDS)
         self.judge: SemanticJudge = judge or HeuristicJudge()
         self.consensus_arbiter = consensus_arbiter
 

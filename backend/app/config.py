@@ -101,6 +101,13 @@ class Settings(BaseSettings):
         default="auto",
         description="Test execution backend: 'docker', 'subprocess' or 'auto'",
     )
+    SANDBOX_TEST_TIMEOUT_SECONDS: float = Field(
+        default=15.0,
+        gt=0,
+        le=300,
+        description="Time the buyer's tests may run, counted after pytest has started "
+        "(interpreter and container startup are not charged to the worker)",
+    )
     SANDBOX_IMAGE: str = Field(
         default="aegispay-sandbox-runner:latest",
         description="Docker image used by the hardened sandbox runner",

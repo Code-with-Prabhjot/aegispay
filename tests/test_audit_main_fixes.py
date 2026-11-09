@@ -204,3 +204,52 @@ def test_sweeper_query_has_no_newest_first_cutoff(tmp_path):
     assert found[0].agreement_id == "a0000"  # oldest first, so the next to expire is never dropped
 
 
+# ------------------------------------------------------------------ sandbox runner infrastructure
+def _completed(rc, out=""):
+    return subprocess.CompletedProcess(args=[], returncode=rc, stdout=out, stderr="")
+
+
+def test_missing_pytest_is_an_infrastructure_error_not_a_zero_score():
+    with mock.patch.object(ae.subprocess, "run",
+                           return_value=_completed(1, "No module named pytest")):
+        with pytest.raises(ae.SandboxInfrastructureError):
+            CodeExecutionRunner().run_tests("x = 1\n", "def test_a(): pass\n")
+
+
+async def test_runner_infrastructure_failure_voids_without_blaming_the_worker():
+    arbiter = ArbitrationArbiter(runner=CodeExecutionRunner())
+    arbiter.is_isolated = lambda *a, **k: True
+    orch = make_orch(arbiter=arbiter)
+    c = await orch.create_contract(payload(test_suite=SUITE))
+    with mock.patch.object(ae.subprocess, "run", return_value=_completed(4, "usage error")):
+        done = await orch.submit_work(c.agreement_id, "def f():\n    return 1\n")
+    assert done.fsm_state == FsmState.ESCROW_VOIDED_REFUNDED
+    assert "Arbiter failure (SandboxInfrastructureError)" in done.report["stdout"]
+    assert "not a verdict on the worker" in done.report["stdout"]
+
+
+def test_startup_time_is_not_charged_to_the_test_budget():
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        import os
+        seen["timeout"] = kw["timeout"]
+        with open(os.path.join(kw["cwd"], "conftest.py"), encoding="utf-8") as f:
+            seen["conftest"] = f.read()
+        return _completed(0, "1 passed in 0.01s")
+
+    with mock.patch.object(ae.subprocess, "run", side_effect=fake_run):
+        assert CodeExecutionRunner(timeout_seconds=2.0).run_tests("x = 1\n", "def test_a(): pass\n")[:2] == (1, 1)
+    assert seen["timeout"] == 2.0 + ae.STARTUP_GRACE_SECONDS
+    assert "Timer(2.0" in seen["conftest"] and str(ae.TEST_TIMEOUT_EXIT_CODE) in seen["conftest"]
+
+
+def test_scrubbed_env_lets_the_child_import_pytest(tmp_path):
+    env = CodeExecutionRunner()._build_scrubbed_env(str(tmp_path))
+    out = subprocess.run(
+        [ae.sys.executable, "-c", "import pytest; print('ok')"],
+        env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert out.stdout.strip() == "ok", out.stderr
+
+
