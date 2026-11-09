@@ -31,7 +31,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PAYPAL_MODE=mock \
-    DATABASE_URL=sqlite:///./aegispay.db \
+    DATABASE_URL=sqlite:////app/data/aegispay.db \
     PORT=8000
 
 # Install curl for health check probe
@@ -42,9 +42,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy pre-built virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Create a non-root system user for security
+# Create a non-root system user for security. /app/data holds the SQLite file; mount a volume
+# there to keep state across restarts (a new named volume inherits this ownership).
 RUN groupadd -g 1001 aegis && \
     useradd -u 1001 -g aegis -m -s /bin/bash aegisuser && \
+    mkdir -p /app/data && \
     chown -R aegisuser:aegis /app
 
 # Copy application code
@@ -57,6 +59,7 @@ EXPOSE 8000
 
 # Health check probing root /health endpoint
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts such as Render inject PORT; listen on it.
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT}"]

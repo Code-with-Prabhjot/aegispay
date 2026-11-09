@@ -1,5 +1,8 @@
 version: "3.9"
 
+# Local stack. Set API_AUTH_KEY in your shell or a .env file next to this file to require a key;
+# the dashboard adds it server-side, so the browser never sees it.
+
 services:
   backend:
     build:
@@ -10,8 +13,9 @@ services:
       - "8000:8000"
     environment:
       - PAYPAL_MODE=mock
-      - DATABASE_URL=sqlite:///./aegispay.db
-      - API_AUTH_KEY=
+      - DATABASE_URL=sqlite:////app/data/aegispay.db
+      - API_AUTH_KEY=${API_AUTH_KEY:-}
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000
     volumes:
       - backend-db:/app/data
     healthcheck:
@@ -28,12 +32,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Baked into the Next build (rewrite target); must be the address the frontend container uses.
+        BACKEND_URL: http://backend:8000
     container_name: aegispay-frontend
     ports:
       - "3000:3000"
     environment:
-      - BACKEND_URL=http://backend:8000
       - NODE_ENV=production
+      - API_AUTH_KEY=${API_AUTH_KEY:-}
     depends_on:
       backend:
         condition: service_healthy
