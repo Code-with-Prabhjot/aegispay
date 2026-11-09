@@ -764,8 +764,8 @@ def create_app(
         except Exception as exc:
             raise _handle(exc)
 
+    # Only under /api/v1, behind the API key: tools/call can create contracts and run code.
     @api.post("/mcp/rpc", include_in_schema=False)
-    @app.post("/mcp/rpc", include_in_schema=False)
     async def mcp_jsonrpc_endpoint(req: Dict[str, Any]) -> Dict[str, Any]:
         rpc_id = req.get("id")
         method = req.get("method")
