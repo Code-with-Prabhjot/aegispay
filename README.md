@@ -1,6 +1,6 @@
 # AegisPay: Autonomous Agent-to-Agent SLA Escrow & Cryptographic Clearinghouse
 
-[![Test Suite](https://img.shields.io/badge/Test%20Suite-542%2F542%20Passing%20(100%25)-00C853?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Test Suite](https://img.shields.io/badge/Test%20Suite-568%2F568%20Passing%20(100%25)-00C853?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2%20(App%20Router)-000000?style=for-the-badge&logo=next.js&logoColor=white)](frontend/)
 [![AG Grid Enterprise](https://img.shields.io/badge/AG%20Grid-Enterprise%2032.0-E0234E?style=for-the-badge&logo=ag-grid&logoColor=white)](https://www.ag-grid.com/)
@@ -55,7 +55,7 @@ AegisPay was architected from Day 1 to achieve top-tier scoring across 6 distinc
 
 | Target Prize Award | Cash Value | Sponsor / Panel Focus | AegisPay Technical Qualification & Implementation Evidence | Repository Source Reference |
 | :--- | :--- | :--- | :--- | :--- |
-| **1st Place Overall** | **$12,000** | Full Evaluation Panel | Production-grade end-to-end clearinghouse combining live PayPal Sandbox execution, air-gapped Docker sandboxing, dual-model AI arbitration, 542 unit tests, zero floating-point drift, and cryptographic Merkle audit proofs. | Full Repository |
+| **1st Place Overall** | **$12,000** | Full Evaluation Panel | Production-grade end-to-end clearinghouse combining live PayPal Sandbox execution, air-gapped Docker sandboxing, dual-model AI arbitration, 568 unit tests, zero floating-point drift, and cryptographic Merkle audit proofs. | Full Repository |
 | **Best Use of PayPal + AI** | **$5,000** | PayPal Dev Relations & AI Teams | Deep native integration of 5 PayPal APIs (**Orders v2 Authorize**, **Orders v2 Capture**, **Authorizations Void**, **Vaulting v3**, **Batch Payouts**, **Webhook Verification**) with an adversarial Verification Arbiter combining AST parsing, pytest test runners, and dual LLM consensus. | [`paypal_escrow.py`](backend/app/services/paypal_escrow.py)<br>[`llm_judge.py`](backend/app/services/llm_judge.py)<br>[`routes_webhooks.py`](backend/app/api/routes_webhooks.py)<br>[`vault_service.py`](backend/app/services/vault_service.py) |
 | **Best Use of Agentic Commerce** | **$5,000** | PayPal Agentic Commerce PMs | Machine-to-machine SLA parameter negotiation via Nash Bargaining utility, W3C `did:key` Ed25519 asymmetric cryptography, autonomous re-authorization sweeper, and complete elimination of human mediation in micro-work disputes. | [`a2a.py`](backend/app/services/a2a.py)<br>[`orchestrator.py`](backend/app/services/orchestrator.py)<br>[`sweeper.py`](backend/app/services/sweeper.py) |
 | **Best AG Grid Implementation** | **$5,000** | AG Grid Community & Engineering | Mission Control Financial Workstation powered by **AG Grid Enterprise (`ag-grid-react`)**. Features Master-Detail hierarchical rows (expanding to reveal live double-entry journal lines, 7-leaf Merkle proofs, AST syntax trees, test assertion matrices), real-time cell flashing (`enableCellChangeFlash`), micro-dollar formatters, CSV audit exports, and 60fps WebSocket state synchronization. | [`EscrowLedgerGrid.tsx`](frontend/src/components/EscrowLedgerGrid.tsx)<br>[`dashboard/page.tsx`](frontend/src/app/dashboard/page.tsx) |
@@ -352,7 +352,7 @@ AegisPay/
 │   │       └── VaultManagementModal.tsx # PayPal Vaulting v3 Allowance Controller
 ├── scripts/
 │   └── run_demo_scenarios.py          # Automated E2E 3-Scenario Terminal Runner
-└── tests/                             # 542 Automated Test Specifications
+└── tests/                             # 568 Automated Test Specifications
     ├── test_a2a_and_merkle.py
     ├── test_apimatic_contract.py
     ├── test_ast_security_matrix.py    # 20-Vector AST Injection Attack Matrix
@@ -438,12 +438,12 @@ python scripts/run_demo_scenarios.py --scenario all --delay 2.5 --base-url http:
 
 ## Verification & Test Coverage
 
-The entire AegisPay codebase is hardened by **542 passing automated tests** with zero failures or skipped assertions:
+The entire AegisPay codebase is hardened by **568 passing automated tests** (with `requirements-dev.txt` installed) with zero failures or skipped assertions:
 
 ```bash
 # Execute complete test suite
 .venv\Scripts\pytest tests/ -q
-# Output: 542 passed, 1 warning in ~79s
+# Output: 568 passed, 1 warning
 ```
 
 ### Key Test Suites
