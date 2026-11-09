@@ -83,6 +83,30 @@ def test_ledger_balance_endpoint_reports_drift(tmp_path):
         assert bad["balanced"] is False and bad["net_imbalance"] == 7
 
 
+# ------------------------------------------------------------------ a2a auto_sign creates a contract
+def test_auto_sign_creates_a_locked_contract(tmp_path):
+    client, app = app_client(tmp_path)
+    body = {"buyer_pref": {"max_budget_micros": 15_000_000, "max_timeout_seconds": 8.0},
+            "worker_pref": {"min_budget_micros": 5_000_000, "min_timeout_seconds": 2.0},
+            "auto_sign": True}
+    with client:
+        res = client.post(f"{P}/a2a/negotiate", json=body)
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["contract_created"] is True and data["auth_id"]
+        stored = client.get(f"{P}/contracts/{data['agreement_id']}").json()
+        assert stored["fsm_state"] == "PAYPAL_AUTH_LOCKED"
+        assert stored["buyer_signature"] and stored["worker_signature"]
+        assert stored["buyer_agent_id"] == data["buyer_did"].strip()
+
+
+def test_auto_sign_is_refused_outside_mock_mode(tmp_path):
+    client, _ = app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY)
+    body = {"buyer_pref": {"max_budget_micros": 15_000_000}, "worker_pref": {}, "auto_sign": True}
+    with client:
+        assert client.post(f"{P}/a2a/negotiate", json=body, headers=H).status_code == 403
+
+
 # ------------------------------------------------------------------------- PAYPAL_MODE validation
 def test_misspelled_paypal_mode_is_rejected_instead_of_going_live():
     with pytest.raises(ValueError, match="PAYPAL_MODE"):

@@ -39,6 +39,7 @@ from backend.app.services import fsm
 from backend.app.services.a2a import (
     Ed25519Agent,
     create_sla_offer,
+    extract_signing_terms,
     negotiate_sla_parameters,
     pubkey_to_did,
     verify_agent_signature,
@@ -444,7 +445,64 @@ def create_app(
         buyer_did = req.buyer_agent_id
         worker_id = req.worker_agent_id or "did:key:worker_solver_candidate"
 
-        if req.auto_sign or req.buyer_agent_id:
+        if req.auto_sign:
+            # The server signs for both agents here, which only makes sense as a demo shortcut:
+            # real agents sign with their own keys and call POST /contracts.
+            _demo_only("Server-side auto_sign")
+            task = req.task_description or "Autonomous Agent Deliverable"
+            if len(task) < 5:
+                raise HTTPException(422, "task_description must be at least 5 characters")
+            # Fresh did:key identities, so each id is bound to the key that signs for it.
+            buyer_agent = Ed25519Agent.generate()
+            worker_agent = Ed25519Agent.generate()
+            buyer_did = buyer_agent.agent_id
+            worker_id = worker_agent.agent_id
+            timeout_s = max(1, int(-(-float(result["max_execution_seconds"]) // 1)))
+            # Demo placeholder suite (auto_sign is mock-only); real buyers commit their own tests.
+            test_suite = "def test_solution():\n    assert True\n"
+            offer = create_sla_offer(
+                buyer=buyer_agent,
+                worker_agent_id=worker_id,
+                task_description=task,
+                budget_micros=result["agreed_budget_micros"],
+                timeout_seconds=timeout_s,
+                runtime_language=req.runtime_language or "python",
+                worker_paypal_email=cfg.WORKER_SANDBOX_EMAIL,
+                test_suite_source=test_suite,
+            )
+            agreement_id = offer["contract_id"]
+            contract_fields = dict(
+                agreement_id=agreement_id,
+                buyer_agent_id=buyer_did,
+                worker_agent_id=worker_id,
+                worker_paypal_email=cfg.WORKER_SANDBOX_EMAIL,
+                budget_micros=result["agreed_budget_micros"],
+                task_description=task,
+                timeout_seconds=timeout_s,
+                test_suite=test_suite,
+                buyer_public_key=buyer_agent.public_key_hex,
+                worker_public_key=worker_agent.public_key_hex,
+            )
+            # The worker countersigns exactly the terms the contract will be validated against.
+            offer["worker_signature"] = worker_agent.sign(extract_signing_terms(contract_fields))
+            offer["worker_public_key"] = worker_agent.public_key_hex
+            offer["status"] = "SLA_SIGNED"
+            try:
+                contract_payload = SlaContractCreate(
+                    **contract_fields,
+                    buyer_signature=offer["buyer_signature"],
+                    worker_signature=offer["worker_signature"],
+                )
+                contract = await orch.create_contract(contract_payload)
+            except ValidationError as exc:
+                raise HTTPException(422, f"Negotiated terms are not a valid contract: {exc}")
+            except Exception as exc:
+                raise _handle(exc)
+            agreement_id = contract.agreement_id
+            auth_id = contract.paypal_authorization_id
+        elif req.buyer_agent_id:
+            # Illustrative offer only (signed with a throwaway key); no contract is created, so
+            # agreement_id below is the proposed id, not a stored contract.
             buyer_agent = Ed25519Agent.generate(agent_id=req.buyer_agent_id)
             buyer_did = buyer_agent.agent_id
             offer = create_sla_offer(
@@ -456,26 +514,6 @@ def create_app(
                 runtime_language=req.runtime_language or "python",
             )
             agreement_id = offer.get("contract_id")
-            if req.auto_sign:
-                try:
-                    worker_agent = Ed25519Agent.generate(agent_id=worker_id)
-                    worker_sig = worker_agent.sign(offer)
-                    contract_payload = SlaContractCreate(
-                        agreement_id=agreement_id,
-                        buyer_agent_id=buyer_did,
-                        worker_agent_id=worker_id,
-                        worker_paypal_email="worker@aegispay.io",
-                        budget_micros=result["agreed_budget_micros"],
-                        task_description=req.task_description or "Autonomous Agent Deliverable",
-                        test_suite_source="def test_solution(): assert True\n",
-                        buyer_signature=offer.get("buyer_signature"),
-                        worker_signature=worker_sig,
-                    )
-                    contract = await orch.create_contract(contract_payload)
-                    agreement_id = contract.agreement_id
-                    auth_id = contract.paypal_auth_id
-                except Exception:
-                    pass
 
         return {
             "parameters": result,
@@ -485,6 +523,7 @@ def create_app(
             "buyer_did": buyer_did,
             "worker_did": worker_id,
             "auth_id": auth_id,
+            "contract_created": auth_id is not None,
             "agreed_budget_micros": result["agreed_budget_micros"],
             "max_execution_seconds": result["max_execution_seconds"],
             "agreed_timeout_seconds": result["agreed_timeout_seconds"],
