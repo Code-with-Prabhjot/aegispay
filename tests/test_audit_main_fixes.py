@@ -132,3 +132,22 @@ def test_health_reports_a_dead_database(tmp_path):
     assert body["database"] == "unavailable" and body["status"] == "degraded"
 
 
+# ----------------------------------------------------------------------------- vault route guards
+def test_existing_vault_cannot_be_overwritten_and_setup_token_is_demo_only(tmp_path):
+    client, app = app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY)
+    vault = {"vault_id": "v1", "buyer_did": "did:key:buyer", "current_daily_spent_micros": 9_000_000}
+    with client:
+        assert client.post(f"{P}/vaults", json=vault, headers=H).status_code == 201  # registering is fine
+        zeroed = dict(vault, current_daily_spent_micros=0)
+        assert client.post(f"{P}/vaults", json=zeroed, headers=H).status_code == 403
+        assert app.state.repo.get_vault("v1").current_daily_spent_micros == 9_000_000
+        setup = {"buyer_did": "did:key:x", "max_amount_per_task_micros": 1, "max_daily_budget_micros": 1}
+        assert client.post(f"{P}/vault/setup-token", json=setup, headers=H).status_code == 403
+
+
+def test_velocity_of_an_unknown_buyer_is_not_reported_as_allowed(tmp_path):
+    client, _ = app_client(tmp_path)
+    with client:
+        assert client.get(f"{P}/vault/velocity/did:key:nobody").status_code == 404
+
+

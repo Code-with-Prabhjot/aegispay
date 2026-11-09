@@ -559,6 +559,9 @@ def create_app(
     @api.post("/vault/setup-token", status_code=201)
     @api.post("/vaults/setup-token", status_code=201)
     async def create_setup_token(req: VaultSetupTokenRequest) -> Dict[str, Any]:
+        # No PayPal Vault v3 setup-token call is made: the "APPROVED" vault below is a local
+        # stand-in, so it must not be offered when real money is involved.
+        _demo_only("Vault setup tokens (PayPal Vault v3 is not wired up yet)")
         vault_id = f"vault_tok_{uuid.uuid4().hex[:12]}"
         vault = register_vault(
             vault_id=vault_id,
@@ -587,17 +590,8 @@ def create_app(
             if v_direct:
                 vaults = [v_direct]
         if not vaults:
-            return {
-                "buyer_did": buyer_did,
-                "vault_id": "default",
-                "max_amount_per_task_micros": 25_000_000,
-                "max_daily_budget_micros": 100_000_000,
-                "current_daily_spent_micros": 0,
-                "consecutive_void_count": 0,
-                "is_frozen": 0,
-                "circuit_breaker_status": "ACTIVE",
-                "velocity_allowed": True,
-            }
+            # Never report an unknown buyer as cleared to spend.
+            raise HTTPException(404, f"No vault registered for '{buyer_did}'")
         vault = vaults[0]
         return {
             "buyer_did": vault.buyer_did,
@@ -614,6 +608,10 @@ def create_app(
 
     @api.post("/vaults", status_code=201)
     async def create_or_update_vault(model: VaultVelocityModel) -> Dict[str, Any]:
+        # Registering a vault is an operator action; overwriting one would zero its spend counter
+        # and bypass the velocity limits, so that is demo-only (use /reset for the breaker).
+        if repository.get_vault(model.vault_id) is not None:
+            _demo_only("Overwriting an existing vault")
         record = register_vault(
             vault_id=model.vault_id,
             buyer_did=model.buyer_did,
