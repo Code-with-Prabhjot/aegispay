@@ -19,8 +19,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, ValidationError
 
-ALLOWED_ORIGINS = ["http://localhost:3000"]
-
 from backend.app.api.routes_webhooks import router as webhooks_router
 from backend.app.config import Settings, settings as default_settings
 from backend.app.db import Repository
@@ -194,9 +192,10 @@ def create_app(
         app.state.repo.db.close()
 
     app = FastAPI(title="AegisPay", version="0.1.0", lifespan=lifespan)
+    allowed_origins = cfg.cors_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=ALLOWED_ORIGINS,
+        allow_origins=allowed_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -789,7 +788,7 @@ def create_app(
             if cfg.API_AUTH_KEY
             else cfg.is_mock
         )
-        if (origin is not None and origin not in ALLOWED_ORIGINS) or not key_ok:
+        if (origin is not None and origin.rstrip("/") not in allowed_origins) or not key_ok:
             await websocket.close(code=1008)
             return
         await broadcaster_mgr.connect(websocket)

@@ -52,6 +52,11 @@ class Settings(BaseSettings):
         default=False,
         description="Reject contracts that do not carry valid buyer and worker Ed25519 signatures",
     )
+    CORS_ALLOWED_ORIGINS: str = Field(
+        default="http://localhost:3000",
+        description="Comma-separated browser origins allowed by CORS and the WebSocket Origin check "
+        "(add the deployed dashboard's origin, e.g. https://aegispay.example.com)",
+    )
 
     # Database connection string
     DATABASE_URL: str = Field(
@@ -127,6 +132,11 @@ class Settings(BaseSettings):
         if self.PAYPAL_WEBHOOK_MOCK_BYPASS and not (self.is_sandbox or self.is_mock):
             raise ValueError("PAYPAL_WEBHOOK_MOCK_BYPASS is only allowed with PAYPAL_MODE=mock or sandbox")
         return self
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Allowed browser origins, without trailing slashes."""
+        return [o.strip().rstrip("/") for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
 
     @property
     def allow_unbound_test_suite(self) -> bool:

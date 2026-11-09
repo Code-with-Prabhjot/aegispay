@@ -55,3 +55,13 @@ def test_misspelled_paypal_mode_is_rejected_instead_of_going_live():
         settings(PAYPAL_MODE="sandbx")
 
 
+# --------------------------------------------------------------------------- configurable CORS
+def test_cors_origins_are_configurable(tmp_path):
+    client, _ = app_client(tmp_path, CORS_ALLOWED_ORIGINS="https://dash.example.com, http://localhost:3000/")
+    with client:
+        r = client.get(f"{P}/health", headers={"Origin": "https://dash.example.com"})
+        assert r.headers["access-control-allow-origin"] == "https://dash.example.com"
+        r = client.get(f"{P}/health", headers={"Origin": "https://evil.example"})
+        assert "access-control-allow-origin" not in r.headers
+
+
