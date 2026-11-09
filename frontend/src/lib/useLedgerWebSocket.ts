@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getWebSocketUrl } from "./api";
+import { fetchWebSocketTicket, getWebSocketUrl } from "./api";
 import type { SlaContractResponse, WebSocketEnvelope } from "./types";
 
 export type WebSocketStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -14,7 +14,8 @@ export interface WebSocketCallbacks {
   onContractUpdate?: (updatedContract: Partial<SlaContractResponse> & { agreement_id: string }) => void;
 }
 
-const WS_PATHS = ["/api/v1/ws/ledger", "/api/v1/ws/dashboard", "/ws/dashboard"];
+// Both live under /api/v1, which the dashboard's rewrite proxies to the backend.
+const WS_PATHS = ["/api/v1/ws/ledger", "/api/v1/ws/dashboard"];
 
 export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled = true) {
   const [status, setStatus] = useState<WebSocketStatus>("disconnected");
@@ -25,9 +26,12 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
   const pathIndexRef = useRef(0);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
+  // Bumped on every connect and on unmount, so a ticket fetch that resolves late is discarded.
+  const generationRef = useRef(0);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!enabled || typeof window === "undefined") return;
+    const generation = ++generationRef.current;
 
     // Clean up any existing connection
     if (wsRef.current) {
@@ -40,9 +44,15 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
     }
 
     const currentPath = WS_PATHS[pathIndexRef.current % WS_PATHS.length];
-    const wsUrl = getWebSocketUrl(currentPath);
+    const baseUrl = getWebSocketUrl(currentPath);
 
     setStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
+
+    const ticket = await fetchWebSocketTicket();
+    if (generation !== generationRef.current) return;
+    const wsUrl = ticket
+      ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`
+      : baseUrl;
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -139,6 +149,7 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
       };
 
       ws.onclose = () => {
+        if (generation !== generationRef.current) return; // superseded or unmounted
         setStatus("disconnected");
         if (heartbeatTimerRef.current) {
           clearInterval(heartbeatTimerRef.current);
@@ -150,7 +161,7 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 8000) + Math.random() * 500;
           reconnectAttemptRef.current += 1;
           if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = setTimeout(connect, delay);
+          reconnectTimerRef.current = setTimeout(() => void connect(), delay);
         }
       };
     } catch {
@@ -159,8 +170,9 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
   }, [enabled]);
 
   useEffect(() => {
-    connect();
+    void connect();
     return () => {
+      generationRef.current += 1;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
       if (wsRef.current) {

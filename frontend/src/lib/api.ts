@@ -61,37 +61,44 @@ export function getWebSocketUrl(path = "/ws/ledger"): string {
 
   // 2. Browser environment
   if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-
-    // GitHub Codespaces support: derive -8000 port-forwarded WebSocket host dynamically
-    if (hostname.includes("github.dev") || hostname.includes("app.github.dev")) {
-      const wsHost = /-\d+(?=\.|$)/.test(hostname)
-        ? hostname.replace(/-\d+(?=\.|$)/, "-8000")
-        : hostname.replace(/^([^.]+)/, "$1-8000");
-      return `${protocol}//${wsHost}${cleanPath}`;
-    }
-
-    // If explicit absolute URL in NEXT_PUBLIC_API_BASE, derive host from it
-    if (process.env.NEXT_PUBLIC_API_BASE?.startsWith("http")) {
+    // Same rule as REST (resolveApiBase): an absolute, non-local NEXT_PUBLIC_API_BASE means the
+    // browser talks to the backend directly.
+    if (API_BASE.startsWith("http")) {
       try {
-        const parsed = new URL(process.env.NEXT_PUBLIC_API_BASE);
+        const parsed = new URL(API_BASE);
         const wsProto = parsed.protocol === "https:" ? "wss:" : "ws:";
         return `${wsProto}//${parsed.host}${cleanPath}`;
       } catch {
-        // fallback to standard host derivation
+        // fall through to the same-origin proxy
       }
     }
-
-    // Standard local or intranet host: connect directly to backend on port 8000
-    const host = hostname || "127.0.0.1";
-    return `${protocol}//${host}:8000${cleanPath}`;
+    // Otherwise go through the dashboard's own origin. The /api/v1 rewrite in next.config.mjs
+    // proxies the WebSocket upgrade to BACKEND_URL as well, so this works wherever REST works
+    // (deployed behind one host, Codespaces, Docker) without exposing port 8000.
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}${cleanPath}`;
   }
 
   // 3. Server-side environment
   const rawBackend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
   const base = rawBackend.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
   return `${base}${cleanPath}`;
+}
+
+/**
+ * Short-lived WebSocket ticket. Browsers cannot send X-API-Key on a WebSocket, so the dashboard
+ * fetches a ticket over REST (the proxy middleware adds the key) and passes it as ?ticket=.
+ * Returns null when the backend runs without an API key.
+ */
+export async function fetchWebSocketTicket(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/ws-ticket`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ticket?: string | null };
+    return body.ticket ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export class ApiError extends Error {
