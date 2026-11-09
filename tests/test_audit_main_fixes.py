@@ -253,3 +253,29 @@ def test_scrubbed_env_lets_the_child_import_pytest(tmp_path):
     assert out.stdout.strip() == "ok", out.stderr
 
 
+# -------------------------------------------------------------------------- WebSocket tickets
+def test_websocket_accepts_a_fresh_ticket_and_rejects_forgeries(tmp_path):
+    client, _ = app_client(tmp_path, PAYPAL_MODE="sandbox", API_AUTH_KEY=KEY)
+    origin = {"origin": "http://localhost:3000"}
+    with client:
+        assert client.get(f"{P}/ws-ticket").status_code == 401
+        ticket = client.get(f"{P}/ws-ticket", headers=H).json()["ticket"]
+        with client.websocket_connect(f"{P}/ws/ledger?ticket={ticket}", headers=origin) as ws:
+            assert ws.receive_json()["event_type"] == "INITIAL_SNAPSHOT"
+
+        exp, _, sig = ticket.partition(".")
+        forged = [f"{exp}.{'0' * len(sig)}", f"{int(time.time()) - 1}.{sig}", "garbage"]
+        for bad in forged:
+            with pytest.raises(WebSocketDisconnect):
+                with client.websocket_connect(f"{P}/ws/ledger?ticket={bad}", headers=origin) as ws:
+                    ws.receive_json()
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"{P}/ws/ledger?ticket={ticket}",
+                                          headers={"origin": "https://evil.example"}) as ws:
+                ws.receive_json()
+
+
+def test_ws_ticket_is_null_without_a_key(tmp_path):
+    client, _ = app_client(tmp_path)
+    with client:
+        assert client.get(f"{P}/ws-ticket").json()["ticket"] is None

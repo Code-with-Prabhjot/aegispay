@@ -7,6 +7,7 @@ All routes live under /api/v1.
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
+import hashlib
 import hmac
 import json
 from pathlib import Path
@@ -71,6 +72,9 @@ from backend.app.services.vault_service import (
     register_vault,
     reset_vault_circuit_breaker,
 )
+
+
+WS_TICKET_TTL_SECONDS = 60
 
 
 class SubmitWork(BaseModel):
@@ -825,11 +829,35 @@ def create_app(
             return {"jsonrpc": "2.0", "id": rpc_id, "result": exec_res["result"]}
         raise HTTPException(400, f"Unsupported JSON-RPC method '{method}'")
 
+    def _ws_ticket_signature(expires_at: int) -> str:
+        return hmac.new(
+            cfg.API_AUTH_KEY.encode("utf-8"), f"ws-ticket:{expires_at}".encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+
+    def _ws_ticket_ok(ticket: str) -> bool:
+        exp_s, _, sig = (ticket or "").partition(".")
+        if not exp_s.isdigit() or not sig:
+            return False
+        expires_at = int(exp_s)
+        if expires_at < int(time.time()) or expires_at > int(time.time()) + WS_TICKET_TTL_SECONDS:
+            return False
+        return hmac.compare_digest(sig, _ws_ticket_signature(expires_at))
+
+    @api.get("/ws-ticket")
+    async def issue_ws_ticket() -> Dict[str, Any]:
+        """Short-lived WebSocket ticket, passed as ?ticket= because browsers cannot set WebSocket headers."""
+        # The dashboard fetches this through its key-adding proxy, so the key never reaches the browser.
+        if not cfg.API_AUTH_KEY:
+            return {"ticket": None, "expires_in": None}
+        expires_at = int(time.time()) + WS_TICKET_TTL_SECONDS
+        return {"ticket": f"{expires_at}.{_ws_ticket_signature(expires_at)}", "expires_in": WS_TICKET_TTL_SECONDS}
+
     async def _ws_ledger_handler(websocket: WebSocket) -> None:
         # Browsers do not apply CORS to WebSockets, so check the Origin here, and the key like REST.
         origin = websocket.headers.get("origin")
         key_ok = (
             _key_matches(websocket.headers.get("x-api-key", ""))
+            or _ws_ticket_ok(websocket.query_params.get("ticket", ""))
             if cfg.API_AUTH_KEY
             else cfg.is_mock
         )

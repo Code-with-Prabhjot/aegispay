@@ -793,6 +793,23 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - APIKeyHeader: []
+  /api/v1/ws-ticket:
+    get:
+      summary: Issue Ws Ticket
+      description: Short-lived WebSocket ticket, passed as ?ticket= because browsers
+        cannot set WebSocket headers.
+      operationId: issue_ws_ticket_api_v1_ws_ticket_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Issue Ws Ticket Api V1 Ws Ticket Get
+      security:
+      - APIKeyHeader: []
 components:
   schemas:
     A2ANegotiateRequest:
