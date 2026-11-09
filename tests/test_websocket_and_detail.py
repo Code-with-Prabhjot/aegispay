@@ -110,11 +110,15 @@ def test_websocket_broadcasts_on_clean_pass_scenario(test_context):
         resp = client.post("/api/v1/demo/scenarios/clean_pass")
         assert resp.status_code == 200
         agreement_id = resp.json()["agreement_id"]
+        # Fail fast: if the scenario did not settle, the loop below would wait forever for an
+        # event that never comes (receive_json has no timeout).
+        assert resp.json()["fsm_state"] == "SETTLED_COMPLETE", resp.json().get("arbitration_report")
 
         # Collect streamed events
         events: List[Dict[str, Any]] = []
         settled = False
         while not settled:
+            assert len(events) < 500, "SETTLED_COMPLETE was never broadcast"
             msg = ws.receive_json()
             events.append(msg)
             if (
