@@ -53,6 +53,12 @@ SETTLEMENT_PENDING_STATES = frozenset({
     FsmState.PARTIAL_CAPTURE_PENDING,
     FsmState.VOID_PENDING,
 })
+# Money captured from the buyer; the worker's payout follows. If the payout call fails here the
+# contract stays in one of these states and retry_payout dispatches it.
+CAPTURED_UNPAID_STATES = frozenset({
+    FsmState.PAYPAL_CAPTURED,
+    FsmState.PARTIAL_CAPTURED,
+})
 ARBITER_FAILURE_PREFIX = "Arbiter failure"
 # An evaluation that has been running this long has died (crash or restart); the worker's code is not stored.
 STUCK_EVALUATION_AFTER = timedelta(minutes=10)
@@ -499,6 +505,11 @@ class EscrowOrchestrator:
                     raise fsm.FsmError(f"{agreement_id} is still being evaluated; retry later")
                 await self._void_after_arbiter_failure(c, TimeoutError("evaluation never completed"))
                 return c
+            if c.fsm_state in CAPTURED_UNPAID_STATES:
+                raise fsm.FsmError(
+                    f"{agreement_id} is captured; use POST /contracts/{agreement_id}/payout/retry "
+                    "to dispatch the worker payout"
+                )
             if c.fsm_state not in SETTLEMENT_PENDING_STATES:
                 raise fsm.FsmError(f"Nothing to retry for {agreement_id} in state {c.fsm_state.value}")
             if not c.report:
@@ -547,7 +558,13 @@ class EscrowOrchestrator:
             self.ledger.record_settlement(c.agreement_id, split)
             self._settle_vault(c, split.capture_micros, is_void=False)
             self.repo.save_contract(c)
-        await self._dispatch_payout(c, attempt=1)
+        try:
+            await self._dispatch_payout(c, attempt=1)
+        except UpstreamError:
+            # The capture stands (the buyer has paid); report the contract as captured rather than
+            # failing the request. retry_payout dispatches it and /sweeper/status lists it.
+            logger.exception("Payout dispatch failed after capture for %s; retry with payout/retry",
+                             c.agreement_id)
 
     # ------------------------------------------------------------------- payout
     async def _dispatch_payout(self, c: fsm.ContractRecord, attempt: int) -> None:
@@ -574,9 +591,21 @@ class EscrowOrchestrator:
                                   split.worker_net_payout_micros, "DISPATCHED", attempt, self.clock())
 
     async def retry_payout(self, agreement_id: str) -> fsm.ContractRecord:
-        """PAYOUT_FAILED_REVERSED -> PAYOUT_DISPATCHED: re-reserve funds and re-dispatch."""
+        """
+        PAYOUT_FAILED_REVERSED -> PAYOUT_DISPATCHED: re-reserve funds and re-dispatch.
+        PAYPAL_CAPTURED / PARTIAL_CAPTURED with no payout on record (the payout call failed right
+        after the capture): dispatch it now. Attempt 1 reuses the original PayPal request ids, so
+        if the first call did reach PayPal this returns that batch instead of paying twice.
+        """
         async with self._lock:
             c = self.get(agreement_id)
+            if c.fsm_state in CAPTURED_UNPAID_STATES:
+                if self.repo.get_payout_for_agreement(agreement_id) is not None:
+                    raise fsm.FsmError(f"{agreement_id} already has a payout on record")
+                if not c.report:
+                    raise fsm.FsmError(f"{agreement_id} has no arbitration report to pay out from")
+                await self._dispatch_payout(c, attempt=1)
+                return c
             if c.fsm_state != FsmState.PAYOUT_FAILED_REVERSED:
                 raise fsm.IllegalTransitionError(c.fsm_state, FsmState.PAYOUT_DISPATCHED)
             split = ArbitrationReport(**c.report).settlement

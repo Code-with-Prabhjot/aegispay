@@ -31,7 +31,11 @@ from backend.app.services.merkle_audit import (
     compute_genesis_hash,
     compute_transition_hash,
 )
-from backend.app.services.orchestrator import SETTLEMENT_PENDING_STATES, extract_authorization_id
+from backend.app.services.orchestrator import (
+    CAPTURED_UNPAID_STATES,
+    SETTLEMENT_PENDING_STATES,
+    extract_authorization_id,
+)
 from backend.app.services.vault_service import release_vault_funds, reservation_epoch
 
 logger = logging.getLogger(__name__)
@@ -102,6 +106,13 @@ class ReauthorizationSweeper:
         """Contracts with a settlement decision PayPal never confirmed (see retry_settlement)."""
         return self.repo.list_contracts_in_states(SETTLEMENT_PENDING_STATES)
 
+    def _get_unpaid_captures(self) -> List[fsm.ContractRecord]:
+        """Captured contracts whose payout was never dispatched (see retry_payout)."""
+        return [
+            c for c in self.repo.list_contracts_in_states(CAPTURED_UNPAID_STATES)
+            if self.repo.get_payout_for_agreement(c.agreement_id) is None
+        ]
+
     def _renewal_count(self, c: fsm.ContractRecord) -> int:
         count = 0
         for entry in self.repo.get_hash_chain(c.agreement_id):
@@ -139,10 +150,13 @@ class ReauthorizationSweeper:
 
         is_solvent = self.ledger.verify_balance_conservation()
         stranded = [c.agreement_id for c in self._get_stranded_contracts()]
+        unpaid = [c.agreement_id for c in self._get_unpaid_captures()]
 
         return {
             "stranded_settlement_count": len(stranded),
             "stranded_settlements": stranded,
+            "unpaid_capture_count": len(unpaid),
+            "unpaid_captures": unpaid,
             "active_authorizations_count": len(active),
             "total_locked_volume_micros": total_locked_micros,
             "total_locked_volume_usd": f"${Decimal(total_locked_micros) / Decimal(1_000_000):.2f}",

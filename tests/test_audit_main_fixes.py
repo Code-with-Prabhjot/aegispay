@@ -166,6 +166,28 @@ def test_releasing_a_hold_from_a_previous_window_does_not_eat_the_new_window(tmp
     assert repo.get_vault("v").current_daily_spent_micros == 0
 
 
+# ---------------------------------------------------- payout failure after capture is recoverable
+async def test_payout_failure_after_capture_is_listed_and_retryable():
+    engine = FlakyEngine(fail_payout=1)
+    orch = make_orch(engine=engine)
+    from backend.app.services.sweeper import ReauthorizationSweeper
+    sweeper = ReauthorizationSweeper(orch.repo, orch.ledger, engine, clock=orch.clock, lock=orch.lock)
+
+    c = await orch.create_contract(payload(test_suite=SUITE))
+    done = await orch.submit_work(c.agreement_id, "def f(): ...")  # no 502: the capture stands
+    assert done.fsm_state == FsmState.PAYPAL_CAPTURED
+    assert sweeper.get_status()["unpaid_captures"] == [c.agreement_id]
+    with pytest.raises(fsm.FsmError, match="payout/retry"):
+        await orch.retry_settlement(c.agreement_id)
+
+    paid = await orch.retry_payout(c.agreement_id)
+    assert paid.fsm_state == FsmState.PAYOUT_DISPATCHED
+    assert sweeper.get_status()["unpaid_captures"] == []
+    assert orch.ledger.verify_balance_conservation()
+    with pytest.raises(fsm.FsmError):
+        await orch.retry_payout(c.agreement_id)  # PAYOUT_DISPATCHED is not retryable
+
+
 # --------------------------------------------------------- sweeper sees every active hold
 def test_sweeper_query_has_no_newest_first_cutoff(tmp_path):
     repo = Repository.from_url(f"sqlite:///{tmp_path}/s.db")
