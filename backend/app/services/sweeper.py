@@ -94,12 +94,13 @@ class ReauthorizationSweeper:
         return _get_age_seconds(c.authorized_at or c.created_at, now) / 3600.0
 
     def _get_active_contracts(self) -> List[fsm.ContractRecord]:
-        all_contracts = self.repo.list_contracts(limit=1000)
-        return [c for c in all_contracts if c.fsm_state in ACTIVE_STATES]
+        # Filtered in SQL with no row limit: a newest-first LIMIT would drop the oldest holds,
+        # which are exactly the ones about to expire.
+        return self.repo.list_contracts_in_states(ACTIVE_STATES)
 
     def _get_stranded_contracts(self) -> List[fsm.ContractRecord]:
         """Contracts with a settlement decision PayPal never confirmed (see retry_settlement)."""
-        return [c for c in self.repo.list_contracts(limit=1000) if c.fsm_state in SETTLEMENT_PENDING_STATES]
+        return self.repo.list_contracts_in_states(SETTLEMENT_PENDING_STATES)
 
     def _renewal_count(self, c: fsm.ContractRecord) -> int:
         count = 0

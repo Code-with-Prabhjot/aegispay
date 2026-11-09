@@ -166,3 +166,19 @@ def test_releasing_a_hold_from_a_previous_window_does_not_eat_the_new_window(tmp
     assert repo.get_vault("v").current_daily_spent_micros == 0
 
 
+# --------------------------------------------------------- sweeper sees every active hold
+def test_sweeper_query_has_no_newest_first_cutoff(tmp_path):
+    repo = Repository.from_url(f"sqlite:///{tmp_path}/s.db")
+    base = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    for i in range(1_005):
+        repo.save_contract(fsm.ContractRecord(
+            agreement_id=f"a{i:04d}", buyer_agent_id="b", worker_agent_id="w",
+            worker_paypal_email="w@example.com", budget_micros=1_000_000, task_description="task",
+            timeout_seconds=60, fsm_state=FsmState.PAYPAL_AUTH_LOCKED,
+            created_at=base + timedelta(seconds=i), updated_at=base + timedelta(seconds=i),
+        ))
+    found = repo.list_contracts_in_states([FsmState.PAYPAL_AUTH_LOCKED])
+    assert len(found) == 1_005
+    assert found[0].agreement_id == "a0000"  # oldest first, so the next to expire is never dropped
+
+

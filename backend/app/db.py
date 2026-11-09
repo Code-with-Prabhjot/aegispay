@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from backend.app.schemas import DoubleEntryLedgerEntry, FsmState
 from backend.app.services.fsm import ContractRecord, TransitionRecord
@@ -295,6 +295,18 @@ class Repository:
 
     def list_contracts(self, limit: int = 200) -> List[ContractRecord]:
         rows = self.db.query("SELECT * FROM contracts ORDER BY created_at DESC LIMIT ?", (limit,))
+        return [self._row_to_contract(r) for r in rows]
+
+    def list_contracts_in_states(self, states: Iterable[Any]) -> List[ContractRecord]:
+        """Every contract in the given FSM states, oldest first, with no row limit (sweeper use)."""
+        values = [getattr(s, "value", s) for s in states]
+        if not values:
+            return []
+        placeholders = ",".join("?" for _ in values)
+        rows = self.db.query(
+            f"SELECT * FROM contracts WHERE fsm_state IN ({placeholders}) ORDER BY created_at ASC",
+            values,
+        )
         return [self._row_to_contract(r) for r in rows]
 
     # --------------------------------------------------------------------- ledger
