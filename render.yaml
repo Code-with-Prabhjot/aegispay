@@ -10,10 +10,15 @@ services:
     envVars:
       - key: PAYPAL_MODE
         value: mock
+      # No persistent disk is attached, so state resets on every deploy/restart.
+      # Attach a Render disk at /app/data to keep it.
       - key: DATABASE_URL
-        value: sqlite:///./aegispay.db
+        value: sqlite:////app/data/aegispay.db
       - key: API_AUTH_KEY
         generateValue: true
+      # The browser's origin is the frontend service; change this if you use a custom domain.
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://aegispay-frontend.onrender.com
 
   # AegisPay Frontend (Next.js 14 Mission Control Dashboard)
   - type: web
@@ -23,10 +28,18 @@ services:
     dockerContext: ./frontend
     plan: starter
     envVars:
+      # Render passes env vars to `docker build` as build args, which is when Next bakes the
+      # rewrite target. hostport is the private-network host:port (next.config.mjs adds http://).
       - key: BACKEND_URL
         fromService:
           type: web
           name: aegispay-backend
-          property: host
+          property: hostport
+      # Read at runtime by src/middleware.ts and sent to the backend; never exposed to the browser.
+      - key: API_AUTH_KEY
+        fromService:
+          type: web
+          name: aegispay-backend
+          envVarKey: API_AUTH_KEY
       - key: NODE_ENV
         value: production
