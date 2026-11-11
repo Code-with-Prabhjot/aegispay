@@ -13,6 +13,7 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
+from backend.app.schemas import WebhookResponse
 from backend.app.services.orchestrator import UpstreamError
 from backend.app.services.paypal_webhooks import check_webhook_headers
 
@@ -50,7 +51,7 @@ async def _verify_signature(request: Request, event: Dict[str, Any]) -> None:
         raise HTTPException(401, "Webhook signature verification failed")
 
 
-@router.post("/paypal")
+@router.post("/paypal", tags=["Webhooks & System"], response_model=WebhookResponse)
 async def paypal_webhook(request: Request) -> Dict[str, Any]:
     try:
         event = await request.json()

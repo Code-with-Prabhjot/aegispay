@@ -31,6 +31,10 @@ class Settings(BaseSettings):
         default=False,
         description="Skip webhook signature verification (local pytest runs only; rejected in live mode)",
     )
+    AUTO_SEED_ON_STARTUP: bool = Field(
+        default=False,
+        description="Auto-seed the database with canonical demo scenarios on boot if empty",
+    )
 
     # API access control and trust policy
     API_AUTH_KEY: str = Field(

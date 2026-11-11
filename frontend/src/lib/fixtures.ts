@@ -455,3 +455,47 @@ export class DemoStore {
     return { entries, balances, balanced: true };
   }
 }
+
+export const FIXTURE_LEDGER: LedgerResponse = {
+  entries: [
+    {
+      entry_id: "demo-entry-0001",
+      debit_account: "paypal_escrow_hold",
+      credit_account: "buyer_vault",
+      amount_micros: 50_000_000,
+      reference_id: "demo-auth-init",
+      currency: "USD",
+      created_at: new Date().toISOString(),
+      description: "Authorized Escrow Hold Allocation ($50.00 Authorized)",
+    },
+    {
+      entry_id: "demo-entry-0002",
+      debit_account: "worker_payable",
+      credit_account: "paypal_escrow_hold",
+      amount_micros: 32_500_000,
+      reference_id: "demo-payout-settle",
+      currency: "USD",
+      created_at: new Date().toISOString(),
+      description: "Settled Payout Net Disbursement ($32.50 Settled)",
+    },
+    {
+      entry_id: "demo-entry-0003",
+      debit_account: "buyer_vault",
+      credit_account: "paypal_escrow_hold",
+      amount_micros: 17_500_000,
+      reference_id: "demo-hold-release",
+      currency: "USD",
+      created_at: new Date().toISOString(),
+      description: "Released Uncaptured Hold Remainder to Buyer Vault",
+    },
+  ],
+  balances: {
+    buyer_vault: 50_000_000,
+    worker_payable: 32_500_000,
+    platform_fee_revenue: 0,
+    paypal_rail_expense: 0,
+    paypal_escrow_hold: 0,
+  },
+  balanced: true,
+};
+

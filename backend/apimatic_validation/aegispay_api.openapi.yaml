@@ -4,34 +4,10 @@ info:
   title: AegisPay
   version: 0.1.0
 paths:
-  /mcp/manifest:
-    get:
-      summary: Get Mcp Manifest Root
-      operationId: get_mcp_manifest_root_mcp_manifest_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties: true
-                type: object
-                title: Response Get Mcp Manifest Root Mcp Manifest Get
-  /health:
-    get:
-      summary: Get Health Root
-      operationId: get_health_root_health_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties: true
-                type: object
-                title: Response Get Health Root Health Get
   /api/v1/health:
     get:
+      tags:
+      - Webhooks & System
       summary: Health
       operationId: health_api_v1_health_get
       responses:
@@ -40,11 +16,11 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Health Api V1 Health Get
+                $ref: '#/components/schemas/HealthResponse'
   /api/v1/webhooks/paypal:
     post:
+      tags:
+      - Webhooks & System
       summary: Paypal Webhook
       operationId: paypal_webhook_api_v1_webhooks_paypal_post
       responses:
@@ -53,11 +29,11 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Paypal Webhook Api V1 Webhooks Paypal Post
+                $ref: '#/components/schemas/WebhookResponse'
   /api/v1/contracts:
     get:
+      tags:
+      - Contracts & Escrow
       summary: List Contracts
       operationId: list_contracts_api_v1_contracts_get
       responses:
@@ -66,12 +42,12 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response List Contracts Api V1 Contracts Get
+                $ref: '#/components/schemas/ContractListResponse'
       security:
       - APIKeyHeader: []
     post:
+      tags:
+      - Contracts & Escrow
       summary: Create Contract
       operationId: create_contract_api_v1_contracts_post
       requestBody:
@@ -86,9 +62,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Create Contract Api V1 Contracts Post
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -99,6 +73,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/contracts/{agreement_id}:
     get:
+      tags:
+      - Contracts & Escrow
       summary: Get Contract
       operationId: get_contract_api_v1_contracts__agreement_id__get
       security:
@@ -116,9 +92,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Contract Api V1 Contracts  Agreement Id  Get
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -127,6 +101,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/submit:
     post:
+      tags:
+      - Contracts & Escrow
       summary: Submit
       operationId: submit_api_v1_contracts__agreement_id__submit_post
       security:
@@ -150,9 +126,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Submit Api V1 Contracts  Agreement Id  Submit Post
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -161,6 +135,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/check-expiry:
     post:
+      tags:
+      - Contracts & Escrow
       summary: Check Expiry
       operationId: check_expiry_api_v1_contracts__agreement_id__check_expiry_post
       security:
@@ -178,10 +154,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Check Expiry Api V1 Contracts  Agreement Id  Check
-                  Expiry Post
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -190,6 +163,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/settlement/retry:
     post:
+      tags:
+      - Contracts & Escrow
       summary: Retry Settlement
       operationId: retry_settlement_api_v1_contracts__agreement_id__settlement_retry_post
       security:
@@ -207,10 +182,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Retry Settlement Api V1 Contracts  Agreement Id  Settlement
-                  Retry Post
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -219,6 +191,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/payout/retry:
     post:
+      tags:
+      - Contracts & Escrow
       summary: Retry Payout
       operationId: retry_payout_api_v1_contracts__agreement_id__payout_retry_post
       security:
@@ -236,10 +210,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Retry Payout Api V1 Contracts  Agreement Id  Payout
-                  Retry Post
+                $ref: '#/components/schemas/ContractDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -248,6 +219,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/demo/scenarios/{name}:
     post:
+      tags:
+      - Contracts & Escrow
       summary: Run Demo
       operationId: run_demo_api_v1_demo_scenarios__name__post
       security:
@@ -272,9 +245,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Run Demo Api V1 Demo Scenarios  Name  Post
+                $ref: '#/components/schemas/DemoScenarioResponse'
         '422':
           description: Validation Error
           content:
@@ -283,6 +254,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/ledger:
     get:
+      tags:
+      - Double-Entry Ledger
       summary: Get Ledger
       operationId: get_ledger_api_v1_ledger_get
       responses:
@@ -291,13 +264,13 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Get Ledger Api V1 Ledger Get
+                $ref: '#/components/schemas/LedgerAuditResponse'
       security:
       - APIKeyHeader: []
   /api/v1/ledger/balance:
     get:
+      tags:
+      - Double-Entry Ledger
       summary: Get Ledger Balance
       operationId: get_ledger_balance_api_v1_ledger_balance_get
       responses:
@@ -306,13 +279,13 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Get Ledger Balance Api V1 Ledger Balance Get
+                $ref: '#/components/schemas/LedgerBalanceResponse'
       security:
       - APIKeyHeader: []
   /api/v1/ledger/accounts:
     get:
+      tags:
+      - Double-Entry Ledger
       summary: Get Ledger Accounts
       operationId: get_ledger_accounts_api_v1_ledger_accounts_get
       responses:
@@ -321,39 +294,13 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Get Ledger Accounts Api V1 Ledger Accounts Get
+                $ref: '#/components/schemas/LedgerAccountsResponse'
       security:
       - APIKeyHeader: []
-  /api/v1/agreements/{agreement_id}/detail:
-    get:
-      summary: Get Agreement Detail
-      operationId: get_agreement_detail_api_v1_agreements__agreement_id__detail_get
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: agreement_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Agreement Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AgreementDetailResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/detail:
     get:
+      tags:
+      - Contracts & Escrow
       summary: Get Contract Detail
       operationId: get_contract_detail_api_v1_contracts__agreement_id__detail_get
       security:
@@ -380,6 +327,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contracts/{agreement_id}/merkle-proof/{leaf_index}:
     get:
+      tags:
+      - Contracts & Escrow
       summary: Get Contract Merkle Proof
       operationId: get_contract_merkle_proof_api_v1_contracts__agreement_id__merkle_proof__leaf_index__get
       security:
@@ -410,40 +359,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/agreements/{agreement_id}/merkle-proof/{leaf_index}:
-    get:
-      summary: Get Agreement Merkle Proof
-      operationId: get_agreement_merkle_proof_api_v1_agreements__agreement_id__merkle_proof__leaf_index__get
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: agreement_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Agreement Id
-      - name: leaf_index
-        in: path
-        required: true
-        schema:
-          type: integer
-          title: Leaf Index
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MerkleProofResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/a2a/negotiate:
     post:
+      tags:
+      - Arbitration & AI
       summary: A2A Negotiate
       operationId: a2a_negotiate_api_v1_a2a_negotiate_post
       requestBody:
@@ -458,9 +377,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response A2A Negotiate Api V1 A2A Negotiate Post
+                $ref: '#/components/schemas/A2ANegotiateResponse'
         '422':
           description: Validation Error
           content:
@@ -471,6 +388,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/a2a/verify-identity:
     post:
+      tags:
+      - Arbitration & AI
       summary: A2A Verify Identity
       operationId: a2a_verify_identity_api_v1_a2a_verify_identity_post
       requestBody:
@@ -485,36 +404,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response A2A Verify Identity Api V1 A2A Verify Identity Post
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - APIKeyHeader: []
-  /api/v1/vaults/setup-token:
-    post:
-      summary: Create Setup Token
-      operationId: create_setup_token_api_v1_vaults_setup_token_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VaultSetupTokenRequest'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties: true
-                type: object
-                title: Response Create Setup Token Api V1 Vaults Setup Token Post
+                $ref: '#/components/schemas/VerifyIdentityResponse'
         '422':
           description: Validation Error
           content:
@@ -525,6 +415,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/vault/setup-token:
     post:
+      tags:
+      - Vault & Circuit Breaker
       summary: Create Setup Token
       operationId: create_setup_token_api_v1_vault_setup_token_post
       requestBody:
@@ -539,9 +431,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Create Setup Token Api V1 Vault Setup Token Post
+                $ref: '#/components/schemas/VaultSetupTokenResponse'
         '422':
           description: Validation Error
           content:
@@ -550,36 +440,10 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - APIKeyHeader: []
-  /api/v1/vaults/velocity/{buyer_did}:
-    get:
-      summary: Get Vault Velocity
-      operationId: get_vault_velocity_api_v1_vaults_velocity__buyer_did__get
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: buyer_did
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Buyer Did
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Vault Velocity Api V1 Vaults Velocity  Buyer Did  Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/vault/velocity/{buyer_did}:
     get:
+      tags:
+      - Vault & Circuit Breaker
       summary: Get Vault Velocity
       operationId: get_vault_velocity_api_v1_vault_velocity__buyer_did__get
       security:
@@ -597,9 +461,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Vault Velocity Api V1 Vault Velocity  Buyer Did  Get
+                $ref: '#/components/schemas/VaultVelocityResponse'
         '422':
           description: Validation Error
           content:
@@ -608,6 +470,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/vaults:
     post:
+      tags:
+      - Vault & Circuit Breaker
       summary: Create Or Update Vault
       operationId: create_or_update_vault_api_v1_vaults_post
       requestBody:
@@ -622,9 +486,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Create Or Update Vault Api V1 Vaults Post
+                $ref: '#/components/schemas/VaultVelocityModel'
         '422':
           description: Validation Error
           content:
@@ -635,6 +497,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/vaults/{vault_id}:
     get:
+      tags:
+      - Vault & Circuit Breaker
       summary: Get Vault Status
       operationId: get_vault_status_api_v1_vaults__vault_id__get
       security:
@@ -652,9 +516,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Vault Status Api V1 Vaults  Vault Id  Get
+                $ref: '#/components/schemas/VaultVelocityModel'
         '422':
           description: Validation Error
           content:
@@ -663,6 +525,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/vaults/{vault_id}/reset:
     post:
+      tags:
+      - Vault & Circuit Breaker
       summary: Reset Circuit Breaker Endpoint
       operationId: reset_circuit_breaker_endpoint_api_v1_vaults__vault_id__reset_post
       security:
@@ -680,10 +544,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Reset Circuit Breaker Endpoint Api V1 Vaults  Vault
-                  Id  Reset Post
+                $ref: '#/components/schemas/VaultResetResponse'
         '422':
           description: Validation Error
           content:
@@ -692,6 +553,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/sweeper/run:
     post:
+      tags:
+      - Webhooks & System
       summary: Run Sweeper Endpoint
       operationId: run_sweeper_endpoint_api_v1_sweeper_run_post
       requestBody:
@@ -708,9 +571,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Run Sweeper Endpoint Api V1 Sweeper Run Post
+                $ref: '#/components/schemas/SweeperRunResponse'
         '422':
           description: Validation Error
           content:
@@ -721,6 +582,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/sweeper/status:
     get:
+      tags:
+      - Webhooks & System
       summary: Get Sweeper Status Endpoint
       operationId: get_sweeper_status_endpoint_api_v1_sweeper_status_get
       security:
@@ -741,10 +604,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Sweeper Status Endpoint Api V1 Sweeper Status
-                  Get
+                $ref: '#/components/schemas/SweeperStatusResponse'
         '422':
           description: Validation Error
           content:
@@ -753,6 +613,8 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mcp/manifest:
     get:
+      tags:
+      - Webhooks & System
       summary: Get Mcp Manifest
       operationId: get_mcp_manifest_api_v1_mcp_manifest_get
       responses:
@@ -768,6 +630,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/mcp/execute:
     post:
+      tags:
+      - Webhooks & System
       summary: Execute Mcp Tool
       operationId: execute_mcp_tool_api_v1_mcp_execute_post
       requestBody:
@@ -795,6 +659,8 @@ paths:
       - APIKeyHeader: []
   /api/v1/ws-ticket:
     get:
+      tags:
+      - Webhooks & System
       summary: Issue Ws Ticket
       description: Short-lived WebSocket ticket, passed as ?ticket= because browsers
         cannot set WebSocket headers.
@@ -805,9 +671,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties: true
-                type: object
-                title: Response Issue Ws Ticket Api V1 Ws Ticket Get
+                $ref: '#/components/schemas/WsTicketResponse'
       security:
       - APIKeyHeader: []
 components:
@@ -876,6 +740,94 @@ components:
       - buyer_pref
       - worker_pref
       title: A2ANegotiateRequest
+    A2ANegotiateResponse:
+      properties:
+        parameters:
+          additionalProperties: true
+          type: object
+          title: Parameters
+          description: Negotiated SLA parameters
+        offer:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Offer
+          description: Signed SLA offer document
+        agreement_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agreement Id
+          description: Proposed or created agreement ID
+        contract_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Contract Id
+          description: Contract ID alias
+        buyer_did:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Did
+          description: Buyer DID key
+        worker_did:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Did
+          description: Worker DID key
+        auth_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auth Id
+          description: PayPal authorization ID if created
+        contract_created:
+          type: boolean
+          title: Contract Created
+          description: Whether escrow authorization was generated
+          default: false
+        agreed_budget_micros:
+          type: integer
+          title: Agreed Budget Micros
+          description: Final agreed budget in micro-dollars
+        max_execution_seconds:
+          type: number
+          title: Max Execution Seconds
+          description: Max execution timeout
+        agreed_timeout_seconds:
+          type: number
+          title: Agreed Timeout Seconds
+          description: Agreed SLA timeout
+        buyer_utility:
+          type: number
+          title: Buyer Utility
+          description: Buyer utility score
+        worker_utility:
+          type: number
+          title: Worker Utility
+          description: Worker utility score
+        nash_product:
+          type: number
+          title: Nash Product
+          description: Nash bargaining product
+        status:
+          type: string
+          title: Status
+          description: Negotiation status
+      type: object
+      required:
+      - parameters
+      - agreed_budget_micros
+      - max_execution_seconds
+      - agreed_timeout_seconds
+      - buyer_utility
+      - worker_utility
+      - nash_product
+      - status
+      title: A2ANegotiateResponse
     AgreementDetailResponse:
       properties:
         agreement_id:
@@ -1097,6 +1049,429 @@ components:
       - is_clean
       title: AstSecurityAudit
       description: Static AST security report breakdown for master-detail inspection.
+    ContractDetailResponse:
+      properties:
+        agreement_id:
+          type: string
+          title: Agreement Id
+          description: Unique SLA contract identifier
+        buyer_agent_id:
+          type: string
+          title: Buyer Agent Id
+          description: Identifier of the buyer agent
+        worker_agent_id:
+          type: string
+          title: Worker Agent Id
+          description: Identifier of the worker agent
+        worker_paypal_email:
+          type: string
+          title: Worker Paypal Email
+          description: PayPal receiver email for payout
+        budget_micros:
+          type: integer
+          title: Budget Micros
+          description: Agreed escrow budget in micro-dollars
+        task_description:
+          type: string
+          title: Task Description
+          description: Task requirements and SLA description
+        timeout_seconds:
+          type: integer
+          title: Timeout Seconds
+          description: Execution timeout in seconds
+        fsm_state:
+          $ref: '#/components/schemas/FsmState'
+          description: Current state in the 11-state financial FSM
+        paypal_order_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Order Id
+          description: PayPal v2 Order ID
+        paypal_authorization_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Authorization Id
+          description: PayPal Authorization Hold ID
+        paypal_capture_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Capture Id
+          description: PayPal Capture ID if captured
+        paypal_payout_batch_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Payout Batch Id
+          description: PayPal Batch Payout ID if disbursed
+        verification_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Verification Score
+          description: Composite arbitration score [0.0, 1.0]
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: Contract creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+          description: Last state update timestamp
+        budget_usd:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Budget Usd
+          description: Budget in USD string format
+        vault_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vault Id
+          description: Optional PayPal Vault payment token ID
+        hash_chain_head:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hash Chain Head
+          description: SHA-256 hash head of the audit trail
+        merkle_root:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Merkle Root
+          description: 7-leaf Merkle root hash upon settlement
+        buyer_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Signature
+          description: Buyer Ed25519 signature
+        worker_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Signature
+          description: Worker Ed25519 signature
+        gemini_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Gemini Score
+          description: Gemini 1.5 Flash judge score [0.0, 1.0]
+        claude_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Claude Score
+          description: Claude 3.5 judge score [0.0, 1.0]
+        divergence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Divergence
+          description: Model score divergence |Gemini - Claude|
+        divergence_penalty_applied:
+          type: boolean
+          title: Divergence Penalty Applied
+          description: Whether consensus divergence penalty was applied
+          default: false
+        test_suite_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Test Suite Sha256
+          description: SHA-256 of the buyer's committed acceptance test suite
+        authorized_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorized At
+          description: Authorization timestamp
+        transitions:
+          items:
+            $ref: '#/components/schemas/FsmTransitionItem'
+          type: array
+          title: Transitions
+          description: FSM transition history
+        arbitration_report:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Arbitration Report
+          description: Arbitration report summary
+      type: object
+      required:
+      - agreement_id
+      - buyer_agent_id
+      - worker_agent_id
+      - worker_paypal_email
+      - budget_micros
+      - task_description
+      - timeout_seconds
+      - fsm_state
+      - created_at
+      - updated_at
+      title: ContractDetailResponse
+    ContractListResponse:
+      properties:
+        contracts:
+          items:
+            $ref: '#/components/schemas/SlaContractResponse'
+          type: array
+          title: Contracts
+          description: List of SLA contracts
+        count:
+          type: integer
+          title: Count
+          description: Total count of contracts
+      type: object
+      required:
+      - contracts
+      - count
+      title: ContractListResponse
+    DemoScenarioResponse:
+      properties:
+        agreement_id:
+          type: string
+          title: Agreement Id
+          description: Unique SLA contract identifier
+        buyer_agent_id:
+          type: string
+          title: Buyer Agent Id
+          description: Identifier of the buyer agent
+        worker_agent_id:
+          type: string
+          title: Worker Agent Id
+          description: Identifier of the worker agent
+        worker_paypal_email:
+          type: string
+          title: Worker Paypal Email
+          description: PayPal receiver email for payout
+        budget_micros:
+          type: integer
+          title: Budget Micros
+          description: Agreed escrow budget in micro-dollars
+        task_description:
+          type: string
+          title: Task Description
+          description: Task requirements and SLA description
+        timeout_seconds:
+          type: integer
+          title: Timeout Seconds
+          description: Execution timeout in seconds
+        fsm_state:
+          $ref: '#/components/schemas/FsmState'
+          description: Current state in the 11-state financial FSM
+        paypal_order_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Order Id
+          description: PayPal v2 Order ID
+        paypal_authorization_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Authorization Id
+          description: PayPal Authorization Hold ID
+        paypal_capture_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Capture Id
+          description: PayPal Capture ID if captured
+        paypal_payout_batch_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Payout Batch Id
+          description: PayPal Batch Payout ID if disbursed
+        verification_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Verification Score
+          description: Composite arbitration score [0.0, 1.0]
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: Contract creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+          description: Last state update timestamp
+        budget_usd:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Budget Usd
+          description: Budget in USD string format
+        vault_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vault Id
+          description: Optional PayPal Vault payment token ID
+        hash_chain_head:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hash Chain Head
+          description: SHA-256 hash head of the audit trail
+        merkle_root:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Merkle Root
+          description: 7-leaf Merkle root hash upon settlement
+        buyer_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Signature
+          description: Buyer Ed25519 signature
+        worker_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Signature
+          description: Worker Ed25519 signature
+        gemini_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Gemini Score
+          description: Gemini 1.5 Flash judge score [0.0, 1.0]
+        claude_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Claude Score
+          description: Claude 3.5 judge score [0.0, 1.0]
+        divergence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Divergence
+          description: Model score divergence |Gemini - Claude|
+        divergence_penalty_applied:
+          type: boolean
+          title: Divergence Penalty Applied
+          description: Whether consensus divergence penalty was applied
+          default: false
+        test_suite_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Test Suite Sha256
+          description: SHA-256 of the buyer's committed acceptance test suite
+        authorized_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorized At
+          description: Authorization timestamp
+        transitions:
+          items:
+            $ref: '#/components/schemas/FsmTransitionItem'
+          type: array
+          title: Transitions
+          description: FSM transition history
+        arbitration_report:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Arbitration Report
+          description: Arbitration report summary
+        ledger_entries:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Ledger Entries
+          description: Ledger journal entries for scenario
+        balances:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Balances
+          description: Ledger account balances after scenario execution
+      type: object
+      required:
+      - agreement_id
+      - buyer_agent_id
+      - worker_agent_id
+      - worker_paypal_email
+      - budget_micros
+      - task_description
+      - timeout_seconds
+      - fsm_state
+      - created_at
+      - updated_at
+      title: DemoScenarioResponse
+    DoubleEntryLedgerEntry:
+      properties:
+        entry_id:
+          type: string
+          title: Entry Id
+          description: Unique UUID identifier for this ledger journal entry
+        debit_account:
+          type: string
+          title: Debit Account
+          description: Account receiving the debit (asset increase or liability/equity
+            decrease)
+        credit_account:
+          type: string
+          title: Credit Account
+          description: Account receiving the credit (liability/equity increase or
+            asset decrease)
+        amount_micros:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Amount Micros
+          description: Transaction amount in integer micro-dollars. Must be strictly
+            positive.
+        reference_id:
+          type: string
+          title: Reference Id
+          description: External reference identifier (e.g. agreement_id, capture_id,
+            payout_batch_id)
+        currency:
+          type: string
+          title: Currency
+          description: ISO 4217 Currency code (default 'USD')
+          default: USD
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: UTC timestamp when this ledger entry was created
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+          description: Human-readable ledger memo describing the financial transfer
+      type: object
+      required:
+      - debit_account
+      - credit_account
+      - amount_micros
+      - reference_id
+      title: DoubleEntryLedgerEntry
+      description: 'Immutable journal entry for the double-entry accounting ledger.
+
+        Every transaction strictly transfers funds between a debit and credit account.'
     FsmState:
       type: string
       enum:
@@ -1121,6 +1496,33 @@ components:
 
         Covers the 11 logical milestones and all branch/terminal states defined in
         the blueprint.'
+    FsmTransitionItem:
+      properties:
+        from_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: From State
+          description: Previous FSM state
+        to_state:
+          type: string
+          title: To State
+          description: Target FSM state
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: Transition trigger reason
+        created_at:
+          type: string
+          title: Created At
+          description: ISO 8601 transition timestamp
+      type: object
+      required:
+      - to_state
+      - created_at
+      title: FsmTransitionItem
     HTTPValidationError:
       properties:
         detail:
@@ -1130,6 +1532,168 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: 'System health: ok or degraded'
+        paypal_mode:
+          type: string
+          title: Paypal Mode
+          description: 'PayPal engine mode: mock, sandbox, or live'
+        mock:
+          type: boolean
+          title: Mock
+          description: Whether mock engine is active
+        database:
+          type: string
+          title: Database
+          description: Database connection status
+        ledger_balanced:
+          type: boolean
+          title: Ledger Balanced
+          description: Double-entry ledger solvency status
+      type: object
+      required:
+      - status
+      - paypal_mode
+      - mock
+      - database
+      - ledger_balanced
+      title: HealthResponse
+    LedgerAccountItem:
+      properties:
+        account:
+          type: string
+          title: Account
+          description: Account identifier
+        balance_micros:
+          type: integer
+          title: Balance Micros
+          description: Balance in micro-dollars
+        balance_usd:
+          type: string
+          title: Balance Usd
+          description: Formatted USD balance string
+      type: object
+      required:
+      - account
+      - balance_micros
+      - balance_usd
+      title: LedgerAccountItem
+    LedgerAccountsResponse:
+      properties:
+        accounts:
+          items:
+            $ref: '#/components/schemas/LedgerAccountItem'
+          type: array
+          title: Accounts
+          description: List of ledger accounts
+        balances:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Balances
+          description: All account balances map
+        count:
+          type: integer
+          title: Count
+          description: Total account count
+      type: object
+      required:
+      - accounts
+      - balances
+      - count
+      title: LedgerAccountsResponse
+    LedgerAuditResponse:
+      properties:
+        entries:
+          items:
+            $ref: '#/components/schemas/DoubleEntryLedgerEntry'
+          type: array
+          title: Entries
+          description: Double-entry journal records
+        balances:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Balances
+          description: Account balances map in micro-dollars
+        balanced:
+          type: boolean
+          title: Balanced
+          description: Whether sum(debits) == sum(credits)
+      type: object
+      required:
+      - entries
+      - balances
+      - balanced
+      title: LedgerAuditResponse
+    LedgerBalanceResponse:
+      properties:
+        balanced:
+          type: boolean
+          title: Balanced
+          description: Balance conservation check outcome
+        net_imbalance:
+          type: integer
+          title: Net Imbalance
+          description: Net imbalance in micro-dollars (0 when balanced)
+        net_imbalance_micros:
+          type: integer
+          title: Net Imbalance Micros
+          description: Net imbalance in micro-dollars
+        total_deposited_micros:
+          type: integer
+          title: Total Deposited Micros
+          description: Total deposits in micro-dollars
+        total_balance_micros:
+          type: integer
+          title: Total Balance Micros
+          description: Total sum of all balances in micro-dollars
+        total_transferred_micros:
+          type: integer
+          title: Total Transferred Micros
+          description: Total transferred volume in micro-dollars
+        account_drift_micros:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Account Drift Micros
+          description: Account-level drift anomalies
+        negative_accounts:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Negative Accounts
+          description: List of accounts with negative balances
+        delta:
+          type: integer
+          title: Delta
+          description: Imbalance delta
+        balances:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Balances
+          description: All account balances in micro-dollars
+        invariant:
+          type: string
+          title: Invariant
+          description: Formal accounting invariant rule
+      type: object
+      required:
+      - balanced
+      - net_imbalance
+      - net_imbalance_micros
+      - total_deposited_micros
+      - total_balance_micros
+      - total_transferred_micros
+      - delta
+      - balances
+      - invariant
+      title: LedgerBalanceResponse
     LedgerJournalLeg:
       properties:
         debit_account:
@@ -1314,6 +1878,159 @@ components:
       title: SlaContractCreate
       description: Request payload for creating and drafting an autonomous agent SLA
         contract.
+    SlaContractResponse:
+      properties:
+        agreement_id:
+          type: string
+          title: Agreement Id
+          description: Unique SLA contract identifier
+        buyer_agent_id:
+          type: string
+          title: Buyer Agent Id
+          description: Identifier of the buyer agent
+        worker_agent_id:
+          type: string
+          title: Worker Agent Id
+          description: Identifier of the worker agent
+        worker_paypal_email:
+          type: string
+          title: Worker Paypal Email
+          description: PayPal receiver email for payout
+        budget_micros:
+          type: integer
+          title: Budget Micros
+          description: Agreed escrow budget in micro-dollars
+        task_description:
+          type: string
+          title: Task Description
+          description: Task requirements and SLA description
+        timeout_seconds:
+          type: integer
+          title: Timeout Seconds
+          description: Execution timeout in seconds
+        fsm_state:
+          $ref: '#/components/schemas/FsmState'
+          description: Current state in the 11-state financial FSM
+        paypal_order_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Order Id
+          description: PayPal v2 Order ID
+        paypal_authorization_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Authorization Id
+          description: PayPal Authorization Hold ID
+        paypal_capture_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Capture Id
+          description: PayPal Capture ID if captured
+        paypal_payout_batch_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paypal Payout Batch Id
+          description: PayPal Batch Payout ID if disbursed
+        verification_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Verification Score
+          description: Composite arbitration score [0.0, 1.0]
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: Contract creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+          description: Last state update timestamp
+        budget_usd:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Budget Usd
+          description: Budget in USD string format
+        vault_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vault Id
+          description: Optional PayPal Vault payment token ID
+        hash_chain_head:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hash Chain Head
+          description: SHA-256 hash head of the audit trail
+        merkle_root:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Merkle Root
+          description: 7-leaf Merkle root hash upon settlement
+        buyer_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Buyer Signature
+          description: Buyer Ed25519 signature
+        worker_signature:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Signature
+          description: Worker Ed25519 signature
+        gemini_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Gemini Score
+          description: Gemini 1.5 Flash judge score [0.0, 1.0]
+        claude_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Claude Score
+          description: Claude 3.5 judge score [0.0, 1.0]
+        divergence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Divergence
+          description: Model score divergence |Gemini - Claude|
+        divergence_penalty_applied:
+          type: boolean
+          title: Divergence Penalty Applied
+          description: Whether consensus divergence penalty was applied
+          default: false
+        test_suite_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Test Suite Sha256
+          description: SHA-256 of the buyer's committed acceptance test suite
+      type: object
+      required:
+      - agreement_id
+      - buyer_agent_id
+      - worker_agent_id
+      - worker_paypal_email
+      - budget_micros
+      - task_description
+      - timeout_seconds
+      - fsm_state
+      - created_at
+      - updated_at
+      title: SlaContractResponse
+      description: Full SLA contract representation including financial status and
+        PayPal IDs.
     SubmitWork:
       properties:
         source_code:
@@ -1367,6 +2084,163 @@ components:
             70.0)
       type: object
       title: SweeperRunParams
+    SweeperRunResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: Sweeper execution status
+        scanned_count:
+          type: integer
+          title: Scanned Count
+          description: Number of evaluated contracts
+        refreshed_count:
+          type: integer
+          title: Refreshed Count
+          description: Reauthorized holds count
+        refreshed_agreements:
+          items:
+            type: string
+          type: array
+          title: Refreshed Agreements
+          description: Reauthorized agreement IDs
+        voided_count:
+          type: integer
+          title: Voided Count
+          description: Voided expired holds count
+        voided_agreements:
+          items:
+            type: string
+          type: array
+          title: Voided Agreements
+          description: Voided agreement IDs
+        failed_count:
+          type: integer
+          title: Failed Count
+          description: Failed operations count
+        failed_agreements:
+          items:
+            type: string
+          type: array
+          title: Failed Agreements
+          description: Failed agreement IDs
+        solvency_status:
+          type: string
+          title: Solvency Status
+          description: SOLVENT or INSOLVENT
+        solvency:
+          type: boolean
+          title: Solvency
+          description: Ledger conservation status
+        balanced:
+          type: boolean
+          title: Balanced
+          description: Ledger balanced status
+        total_locked_volume_micros:
+          type: integer
+          title: Total Locked Volume Micros
+          description: Remaining locked micros
+        total_locked_volume_usd:
+          type: string
+          title: Total Locked Volume Usd
+          description: Formatted USD locked volume
+        timestamp:
+          type: string
+          title: Timestamp
+          description: Execution ISO timestamp
+      type: object
+      required:
+      - status
+      - scanned_count
+      - refreshed_count
+      - voided_count
+      - failed_count
+      - solvency_status
+      - solvency
+      - balanced
+      - total_locked_volume_micros
+      - total_locked_volume_usd
+      - timestamp
+      title: SweeperRunResponse
+    SweeperStatusResponse:
+      properties:
+        stranded_settlement_count:
+          type: integer
+          title: Stranded Settlement Count
+          description: Stranded settlement count
+        stranded_settlements:
+          items:
+            type: string
+          type: array
+          title: Stranded Settlements
+          description: Stranded agreement IDs
+        unpaid_capture_count:
+          type: integer
+          title: Unpaid Capture Count
+          description: Unpaid capture count
+        unpaid_captures:
+          items:
+            type: string
+          type: array
+          title: Unpaid Captures
+          description: Unpaid capture agreement IDs
+        active_authorizations_count:
+          type: integer
+          title: Active Authorizations Count
+          description: Active holds count
+        total_locked_volume_micros:
+          type: integer
+          title: Total Locked Volume Micros
+          description: Locked volume in micro-dollars
+        total_locked_volume_usd:
+          type: string
+          title: Total Locked Volume Usd
+          description: Formatted USD locked volume
+        oldest_active_hold_age_hours:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Oldest Active Hold Age Hours
+          description: Oldest hold age in hours
+        oldest_active_hold_agreement_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Oldest Active Hold Agreement Id
+          description: Oldest hold agreement ID
+        near_expiry_count:
+          type: integer
+          title: Near Expiry Count
+          description: Holds within expiration buffer
+        solvency_status:
+          type: string
+          title: Solvency Status
+          description: SOLVENT or INSOLVENT
+        solvency:
+          type: boolean
+          title: Solvency
+          description: Solvency check status
+        balanced:
+          type: boolean
+          title: Balanced
+          description: Conservation status
+        timestamp:
+          type: string
+          title: Timestamp
+          description: Status check ISO timestamp
+      type: object
+      required:
+      - stranded_settlement_count
+      - unpaid_capture_count
+      - active_authorizations_count
+      - total_locked_volume_micros
+      - total_locked_volume_usd
+      - near_expiry_count
+      - solvency_status
+      - solvency
+      - balanced
+      - timestamp
+      title: SweeperStatusResponse
     TestAssertionItem:
       properties:
         name:
@@ -1420,6 +2294,22 @@ components:
       - msg
       - type
       title: ValidationError
+    VaultResetResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: 'Reset outcome status: unfrozen'
+        vault:
+          additionalProperties: true
+          type: object
+          title: Vault
+          description: Vault record after reset
+      type: object
+      required:
+      - status
+      - vault
+      title: VaultResetResponse
     VaultSetupTokenRequest:
       properties:
         buyer_did:
@@ -1447,6 +2337,52 @@ components:
       required:
       - buyer_did
       title: VaultSetupTokenRequest
+    VaultSetupTokenResponse:
+      properties:
+        vault_id:
+          type: string
+          title: Vault Id
+          description: Vault token identifier
+        setup_token:
+          type: string
+          title: Setup Token
+          description: Setup token identifier
+        buyer_did:
+          type: string
+          title: Buyer Did
+          description: Buyer DID key
+        status:
+          type: string
+          title: Status
+          description: 'Vault status: APPROVED'
+        payment_source:
+          additionalProperties: true
+          type: object
+          title: Payment Source
+          description: Payment source descriptor
+        max_amount_per_task_micros:
+          type: integer
+          title: Max Amount Per Task Micros
+          description: Task limit in micro-dollars
+        max_daily_budget_micros:
+          type: integer
+          title: Max Daily Budget Micros
+          description: Daily limit in micro-dollars
+        is_frozen:
+          type: integer
+          title: Is Frozen
+          description: Circuit breaker lock status
+      type: object
+      required:
+      - vault_id
+      - setup_token
+      - buyer_did
+      - status
+      - payment_source
+      - max_amount_per_task_micros
+      - max_daily_budget_micros
+      - is_frozen
+      title: VaultSetupTokenResponse
     VaultVelocityModel:
       properties:
         vault_id:
@@ -1492,6 +2428,61 @@ components:
       - vault_id
       - buyer_did
       title: VaultVelocityModel
+    VaultVelocityResponse:
+      properties:
+        buyer_did:
+          type: string
+          title: Buyer Did
+          description: Buyer DID key
+        vault_id:
+          type: string
+          title: Vault Id
+          description: Vault identifier
+        max_amount_per_task_micros:
+          type: integer
+          title: Max Amount Per Task Micros
+          description: Task limit in micro-dollars
+        max_daily_budget_micros:
+          type: integer
+          title: Max Daily Budget Micros
+          description: Daily limit in micro-dollars
+        current_daily_spent_micros:
+          type: integer
+          title: Current Daily Spent Micros
+          description: Running daily spent in micro-dollars
+        window_reset_timestamp:
+          type: integer
+          title: Window Reset Timestamp
+          description: Epoch timestamp when daily window resets
+        consecutive_void_count:
+          type: integer
+          title: Consecutive Void Count
+          description: Consecutive void count
+        is_frozen:
+          type: integer
+          title: Is Frozen
+          description: 0 = active, 1 = frozen
+        circuit_breaker_status:
+          type: string
+          title: Circuit Breaker Status
+          description: ACTIVE or LOCKED
+        velocity_allowed:
+          type: boolean
+          title: Velocity Allowed
+          description: Whether buyer is permitted to open new contracts
+      type: object
+      required:
+      - buyer_did
+      - vault_id
+      - max_amount_per_task_micros
+      - max_daily_budget_micros
+      - current_daily_spent_micros
+      - window_reset_timestamp
+      - consecutive_void_count
+      - is_frozen
+      - circuit_breaker_status
+      - velocity_allowed
+      title: VaultVelocityResponse
     VerifyIdentityRequest:
       properties:
         public_key_hex:
@@ -1517,8 +2508,86 @@ components:
       - challenge
       - signature_hex
       title: VerifyIdentityRequest
+    VerifyIdentityResponse:
+      properties:
+        valid:
+          type: boolean
+          title: Valid
+          description: Signature validity
+        verified:
+          type: boolean
+          title: Verified
+          description: Identity verification result
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+          description: Agent DID
+        public_key_hex:
+          type: string
+          title: Public Key Hex
+          description: Agent Ed25519 public key hex
+      type: object
+      required:
+      - valid
+      - verified
+      - public_key_hex
+      title: VerifyIdentityResponse
+    WebhookResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: 'Webhook processing status: processed, duplicate, or skipped'
+        event_id:
+          type: string
+          title: Event Id
+          description: PayPal Webhook delivery event ID
+        agreement_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agreement Id
+          description: Associated agreement ID if matched
+      type: object
+      required:
+      - status
+      - event_id
+      title: WebhookResponse
+    WsTicketResponse:
+      properties:
+        ticket:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ticket
+          description: HMAC-signed short-lived WebSocket ticket
+        expires_in:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Expires In
+          description: Ticket TTL in seconds
+      type: object
+      title: WsTicketResponse
   securitySchemes:
     APIKeyHeader:
       type: apiKey
       in: header
       name: X-API-Key
+tags:
+- name: Contracts & Escrow
+  description: Lifecycle operations for SLA contracts, state machine transitions,
+    and escrow settlement.
+- name: Double-Entry Ledger
+  description: Immutable balance conservation ledger, account charts, and cryptographic
+    audits.
+- name: Arbitration & AI
+  description: Autonomous Agent-to-Agent (A2A) negotiation, identity verification,
+    and multi-model arbitration.
+- name: Vault & Circuit Breaker
+  description: PayPal Vault tokenization, velocity limiters, and circuit breakers
+    against rogue agent spend.
+- name: Webhooks & System
+  description: PayPal webhook processing, MCP tool manifests, and system health telemetry.

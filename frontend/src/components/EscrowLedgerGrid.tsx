@@ -674,7 +674,12 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
   const onGridReady = useCallback((e: GridReadyEvent<SlaContractResponse>) => {
     apiRef.current = e.api;
     setReady(true);
-  }, []);
+    if (contracts.length > 0) {
+      e.api.hideOverlay();
+    } else {
+      e.api.showNoRowsOverlay();
+    }
+  }, [contracts.length]);
 
   // Real-time WebSocket connection to /api/v1/ws/ledger with fallback to /api/v1/ws/dashboard
   const { status: wsStatus } = useLedgerWebSocket({
@@ -683,9 +688,11 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
       if (!api || !ready) return;
       // Apply delta updates with 60fps flash
       api.applyTransactionAsync({ update: [updatedRow as SlaContractResponse] });
+      api.hideOverlay();
       onRefresh?.();
     },
     onSnapshot: () => {
+      apiRef.current?.hideOverlay();
       onRefresh?.();
     },
   });
@@ -712,6 +719,11 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
 
     if (add.length || update.length) {
       api.applyTransactionAsync({ add, update });
+      api.hideOverlay();
+    } else if (contracts.length === 0) {
+      api.showNoRowsOverlay();
+    } else {
+      api.hideOverlay();
     }
   }, [contracts, ready]);
 

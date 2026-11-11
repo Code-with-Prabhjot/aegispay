@@ -10,12 +10,14 @@ from decimal import Decimal
 import hashlib
 import hmac
 import json
+import logging
+import os
 from pathlib import Path
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, Security, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
@@ -26,18 +28,45 @@ from backend.app.config import Settings, settings as default_settings
 from backend.app.db import Repository
 from backend.app.schemas import (
     A2ANegotiateRequest,
+    A2ANegotiateResponse,
     AgreementDetailResponse,
     AstSecurityAudit,
+    ContractDetailResponse,
+    ContractListResponse,
+    DemoScenarioResponse,
+    FsmTransitionItem,
+    HealthResponse,
+    LedgerAccount,
+    LedgerAccountItem,
+    LedgerAccountsResponse,
+    LedgerAuditResponse,
+    LedgerBalanceResponse,
     LedgerJournalLeg,
     MerkleProofResponse,
     SlaContractCreate,
+    SlaContractResponse,
+    SweeperRunResponse,
+    SweeperStatusResponse,
     TestAssertionItem,
-    LedgerAccount,
+    VaultResetResponse,
     VaultSetupTokenRequest,
+    VaultSetupTokenResponse,
     VaultVelocityModel,
+    VaultVelocityResponse,
     VerifyIdentityRequest,
+    VerifyIdentityResponse,
+    WebhookResponse,
+    WsTicketResponse,
 )
 from backend.app.services import fsm
+from backend.app.services.orchestrator import (
+    EscrowOrchestrator,
+    NotFoundError,
+    PolicyViolationError,
+    SandboxUnavailableError,
+    UpstreamError,
+    seed_canonical_scenarios,
+)
 from backend.app.services.a2a import (
     Ed25519Agent,
     create_sla_offer,
@@ -73,6 +102,9 @@ from backend.app.services.vault_service import (
     register_vault,
     reset_vault_circuit_breaker,
 )
+
+
+logger = logging.getLogger("aegispay.main")
 
 
 WS_TICKET_TTL_SECONDS = 60
@@ -209,13 +241,46 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or default_settings
 
+    tags_metadata = [
+        {
+            "name": "Contracts & Escrow",
+            "description": "Lifecycle operations for SLA contracts, state machine transitions, and escrow settlement.",
+        },
+        {
+            "name": "Double-Entry Ledger",
+            "description": "Immutable balance conservation ledger, account charts, and cryptographic audits.",
+        },
+        {
+            "name": "Arbitration & AI",
+            "description": "Autonomous Agent-to-Agent (A2A) negotiation, identity verification, and multi-model arbitration.",
+        },
+        {
+            "name": "Vault & Circuit Breaker",
+            "description": "PayPal Vault tokenization, velocity limiters, and circuit breakers against rogue agent spend.",
+        },
+        {
+            "name": "Webhooks & System",
+            "description": "PayPal webhook processing, MCP tool manifests, and system health telemetry.",
+        },
+    ]
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        should_seed = not os.environ.get("PYTEST_CURRENT_TEST") or getattr(cfg, "AUTO_SEED_ON_STARTUP", False)
+        if should_seed:
+            try:
+                count_res = app.state.repo.db.query("SELECT COUNT(*) FROM contracts")
+                cnt = count_res[0][0] if count_res else 0
+                if cnt == 0:
+                    logger.info("Auto-seeding backend database with canonical demo scenario contracts...")
+                    await seed_canonical_scenarios(app.state.orchestrator)
+            except Exception as exc:
+                logger.warning("Startup database check/seeding failed or skipped: %s", exc)
         yield
         await app.state.orchestrator.engine.close()
         app.state.repo.db.close()
 
-    app = FastAPI(title="AegisPay", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="AegisPay", version="0.1.0", lifespan=lifespan, openapi_tags=tags_metadata)
     allowed_origins = cfg.cors_origins
     app.add_middleware(
         CORSMiddleware,
@@ -276,8 +341,8 @@ def create_app(
             return HTTPException(502, str(exc))
         raise exc
 
-    @public.get("/health")
-    async def health() -> Dict[str, Any]:
+    @public.get("/health", tags=["Webhooks & System"], response_model=HealthResponse)
+    async def health(response: Response) -> HealthResponse:
         mock = bool(getattr(paypal, "is_mock", False))
         audit = ledger.audit_balances()
         ledger_balanced = bool(audit.get("balanced", False))
@@ -287,36 +352,36 @@ def create_app(
         except Exception:
             db_status = "disconnected"
 
-        status_code = 200 if db_status == "connected" else 503
-        content = {
-            "status": "ok" if db_status == "connected" else "degraded",
-            "paypal_mode": "mock" if mock else cfg.PAYPAL_MODE,
-            "mock": mock,
-            "database": db_status,
-            "ledger_balanced": ledger_balanced,
-        }
-        return JSONResponse(status_code=status_code, content=content)
+        if db_status != "connected":
+            response.status_code = 503
+        return HealthResponse(
+            status="ok" if db_status == "connected" else "degraded",
+            paypal_mode="mock" if mock else cfg.PAYPAL_MODE,
+            mock=mock,
+            database=db_status,
+            ledger_balanced=ledger_balanced,
+        )
 
-    @api.post("/contracts", status_code=201)
+    @api.post("/contracts", status_code=201, tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def create_contract(payload: SlaContractCreate) -> Dict[str, Any]:
         try:
             return contract_detail(await orch.create_contract(payload))
         except (fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
 
-    @api.get("/contracts")
+    @api.get("/contracts", tags=["Contracts & Escrow"], response_model=ContractListResponse)
     async def list_contracts() -> Dict[str, Any]:
         items = [c.to_response().model_dump(mode="json") for c in repository.list_contracts()]
         return {"contracts": items, "count": len(items)}
 
-    @api.get("/contracts/{agreement_id}")
+    @api.get("/contracts/{agreement_id}", tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def get_contract(agreement_id: str) -> Dict[str, Any]:
         try:
             return contract_detail(orch.get(agreement_id))
         except NotFoundError as exc:
             raise _handle(exc)
 
-    @api.post("/contracts/{agreement_id}/submit")
+    @api.post("/contracts/{agreement_id}/submit", tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def submit(agreement_id: str, body: SubmitWork) -> Dict[str, Any]:
         try:
             c = await orch.submit_work(
@@ -330,28 +395,28 @@ def create_app(
             raise _handle(exc)
         return contract_detail(c)
 
-    @api.post("/contracts/{agreement_id}/check-expiry")
+    @api.post("/contracts/{agreement_id}/check-expiry", tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def check_expiry(agreement_id: str) -> Dict[str, Any]:
         try:
             return contract_detail(await orch.check_expiry(agreement_id))
         except NotFoundError as exc:
             raise _handle(exc)
 
-    @api.post("/contracts/{agreement_id}/settlement/retry")
+    @api.post("/contracts/{agreement_id}/settlement/retry", tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def retry_settlement(agreement_id: str) -> Dict[str, Any]:
         try:
             return contract_detail(await orch.retry_settlement(agreement_id))
         except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
 
-    @api.post("/contracts/{agreement_id}/payout/retry")
+    @api.post("/contracts/{agreement_id}/payout/retry", tags=["Contracts & Escrow"], response_model=ContractDetailResponse)
     async def retry_payout(agreement_id: str) -> Dict[str, Any]:
         try:
             return contract_detail(await orch.retry_payout(agreement_id))
         except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
 
-    @api.post("/demo/scenarios/{name}")
+    @api.post("/demo/scenarios/{name}", tags=["Contracts & Escrow"], response_model=DemoScenarioResponse)
     async def run_demo(name: str, payout_outcome: str = "succeeded") -> Dict[str, Any]:
         if not getattr(paypal, "is_mock", False):
             raise HTTPException(400, "Demo scenarios require PAYPAL_MODE=mock")
@@ -370,7 +435,7 @@ def create_app(
         detail["balances"] = ledger.get_all_balances()
         return detail
 
-    @api.get("/ledger")
+    @api.get("/ledger", tags=["Double-Entry Ledger"], response_model=LedgerAuditResponse)
     async def get_ledger() -> Dict[str, Any]:
         return {
             "entries": ledger.to_records(),
@@ -378,7 +443,7 @@ def create_app(
             "balanced": ledger.verify_balance_conservation(),
         }
 
-    @api.get("/ledger/balance")
+    @api.get("/ledger/balance", tags=["Double-Entry Ledger"], response_model=LedgerBalanceResponse)
     async def get_ledger_balance() -> Dict[str, Any]:
         # Each journal row is one debit and one equal credit, so comparing their totals proves
         # nothing. Instead re-derive every balance from deposits + journal and compare.
@@ -398,7 +463,7 @@ def create_app(
             "invariant": "sum(balances) == sum(deposits) and balances == replay(deposits + journal)",
         }
 
-    @api.get("/ledger/accounts")
+    @api.get("/ledger/accounts", tags=["Double-Entry Ledger"], response_model=LedgerAccountsResponse)
     async def get_ledger_accounts() -> Dict[str, Any]:
         balances = ledger.get_all_balances()
         accounts = [
@@ -415,19 +480,19 @@ def create_app(
             "count": len(accounts),
         }
 
-    @api.get("/agreements/{agreement_id}/detail", response_model=AgreementDetailResponse)
-    async def get_agreement_detail(agreement_id: str) -> AgreementDetailResponse:
+    @api.get("/contracts/{agreement_id}/detail", tags=["Contracts & Escrow"], response_model=AgreementDetailResponse)
+    async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
         try:
             c = orch.get(agreement_id)
             return build_agreement_detail_response(c, repository, ledger)
         except NotFoundError as exc:
             raise _handle(exc)
 
-    @api.get("/contracts/{agreement_id}/detail", response_model=AgreementDetailResponse)
-    async def get_contract_detail(agreement_id: str) -> AgreementDetailResponse:
-        return await get_agreement_detail(agreement_id)
+    @api.get("/agreements/{agreement_id}/detail", response_model=AgreementDetailResponse, include_in_schema=False, deprecated=True)
+    async def get_agreement_detail(agreement_id: str) -> AgreementDetailResponse:
+        return await get_contract_detail(agreement_id)
 
-    @api.get("/contracts/{agreement_id}/merkle-proof/{leaf_index}", response_model=MerkleProofResponse)
+    @api.get("/contracts/{agreement_id}/merkle-proof/{leaf_index}", tags=["Contracts & Escrow"], response_model=MerkleProofResponse)
     async def get_contract_merkle_proof(agreement_id: str, leaf_index: int) -> MerkleProofResponse:
         if not (0 <= leaf_index <= 6):
             raise HTTPException(400, "leaf_index must be an integer between 0 and 6 inclusive")
@@ -455,11 +520,11 @@ def create_app(
             verified=verified,
         )
 
-    @api.get("/agreements/{agreement_id}/merkle-proof/{leaf_index}", response_model=MerkleProofResponse)
+    @api.get("/agreements/{agreement_id}/merkle-proof/{leaf_index}", response_model=MerkleProofResponse, include_in_schema=False, deprecated=True)
     async def get_agreement_merkle_proof(agreement_id: str, leaf_index: int) -> MerkleProofResponse:
         return await get_contract_merkle_proof(agreement_id, leaf_index)
 
-    @api.post("/a2a/negotiate")
+    @api.post("/a2a/negotiate", tags=["Arbitration & AI"], response_model=A2ANegotiateResponse)
     async def a2a_negotiate(req: A2ANegotiateRequest) -> Dict[str, Any]:
         result = negotiate_sla_parameters(
             buyer_pref=req.buyer_pref,
@@ -561,7 +626,7 @@ def create_app(
             "status": "AGREEMENT_REACHED",
         }
 
-    @api.post("/a2a/verify-identity")
+    @api.post("/a2a/verify-identity", tags=["Arbitration & AI"], response_model=VerifyIdentityResponse)
     async def a2a_verify_identity(req: VerifyIdentityRequest) -> Dict[str, Any]:
         is_valid = verify_agent_signature(
             public_key=req.public_key_hex,
@@ -584,8 +649,7 @@ def create_app(
             "public_key_hex": req.public_key_hex,
         }
 
-    @api.post("/vault/setup-token", status_code=201)
-    @api.post("/vaults/setup-token", status_code=201)
+    @api.post("/vault/setup-token", status_code=201, tags=["Vault & Circuit Breaker"], response_model=VaultSetupTokenResponse)
     async def create_setup_token(req: VaultSetupTokenRequest) -> Dict[str, Any]:
         # No PayPal Vault v3 setup-token call is made: the "APPROVED" vault below is a local
         # stand-in, so it must not be offered when real money is involved.
@@ -609,8 +673,11 @@ def create_app(
             "is_frozen": vault.is_frozen,
         }
 
-    @api.get("/vault/velocity/{buyer_did}")
-    @api.get("/vaults/velocity/{buyer_did}")
+    @api.post("/vaults/setup-token", status_code=201, include_in_schema=False, response_model=VaultSetupTokenResponse, deprecated=True)
+    async def create_setup_token_alias(req: VaultSetupTokenRequest) -> Dict[str, Any]:
+        return await create_setup_token(req)
+
+    @api.get("/vault/velocity/{buyer_did}", tags=["Vault & Circuit Breaker"], response_model=VaultVelocityResponse)
     async def get_vault_velocity(buyer_did: str) -> Dict[str, Any]:
         vaults = [v for v in repository.list_vaults() if v.buyer_did == buyer_did]
         if not vaults:
@@ -634,7 +701,11 @@ def create_app(
             "velocity_allowed": vault.is_frozen == 0,
         }
 
-    @api.post("/vaults", status_code=201)
+    @api.get("/vaults/velocity/{buyer_did}", include_in_schema=False, response_model=VaultVelocityResponse, deprecated=True)
+    async def get_vaults_velocity_alias(buyer_did: str) -> Dict[str, Any]:
+        return await get_vault_velocity(buyer_did)
+
+    @api.post("/vaults", status_code=201, tags=["Vault & Circuit Breaker"], response_model=VaultVelocityModel)
     async def create_or_update_vault(model: VaultVelocityModel) -> Dict[str, Any]:
         # Registering a vault is an operator action; overwriting one would zero its spend counter
         # and bypass the velocity limits, so that is demo-only (use /reset for the breaker).
@@ -653,14 +724,14 @@ def create_app(
         )
         return record.to_dict()
 
-    @api.get("/vaults/{vault_id}")
+    @api.get("/vaults/{vault_id}", tags=["Vault & Circuit Breaker"], response_model=VaultVelocityModel)
     async def get_vault_status(vault_id: str) -> Dict[str, Any]:
         vault = repository.get_vault(vault_id)
         if vault is None:
             raise HTTPException(404, f"Vault '{vault_id}' not found")
         return vault.to_dict()
 
-    @api.post("/vaults/{vault_id}/reset")
+    @api.post("/vaults/{vault_id}/reset", tags=["Vault & Circuit Breaker"], response_model=VaultResetResponse)
     async def reset_circuit_breaker_endpoint(vault_id: str) -> Dict[str, Any]:
         vault = reset_vault_circuit_breaker(vault_id, repo=repository)
         if vault is None:
@@ -741,7 +812,7 @@ def create_app(
         d["status"] = status
         return {"status": status, "is_frozen": vault.is_frozen, "vault": d}
 
-    @api.post("/sweeper/run")
+    @api.post("/sweeper/run", tags=["Webhooks & System"], response_model=SweeperRunResponse)
     async def run_sweeper_endpoint(params: Optional[SweeperRunParams] = None) -> Dict[str, Any]:
         simulate_now = params.simulate_now if params else None
         threshold_hours = params.threshold_hours if params else None
@@ -749,26 +820,26 @@ def create_app(
             _demo_only("Overriding the sweeper clock or threshold")
         return await sweeper.sweep(now=simulate_now, threshold_hours=threshold_hours)
 
-    @api.get("/sweeper/status")
+    @api.get("/sweeper/status", tags=["Webhooks & System"], response_model=SweeperStatusResponse)
     async def get_sweeper_status_endpoint(simulate_now: Optional[datetime] = None) -> Dict[str, Any]:
         if simulate_now is not None:
             _demo_only("Overriding the sweeper clock")
         return sweeper.get_status(now=simulate_now)
 
-    @api.get("/mcp/manifest")
+    @api.get("/mcp/manifest", tags=["Webhooks & System"], response_model=Dict[str, Any])
     async def get_mcp_manifest() -> Dict[str, Any]:
         manifest_path = Path(__file__).resolve().parent.parent.parent / "aegispay_mcp.json"
         if manifest_path.exists():
             return json.loads(manifest_path.read_text(encoding="utf-8"))
         raise HTTPException(500, "MCP manifest file not found")
 
-    @app.get("/mcp/manifest")
+    @app.get("/mcp/manifest", include_in_schema=False)
     async def get_mcp_manifest_root() -> Dict[str, Any]:
         return await get_mcp_manifest()
 
-    @app.get("/health")
-    async def get_health_root() -> Dict[str, Any]:
-        return await health()
+    @app.get("/health", include_in_schema=False)
+    async def get_health_root(response: Response) -> HealthResponse:
+        return await health(response)
 
     @api.get("/mcp/tools", include_in_schema=False)
     async def get_mcp_tools() -> Dict[str, Any]:
@@ -779,7 +850,7 @@ def create_app(
         name: str
         arguments: Dict[str, Any]
 
-    @api.post("/mcp/execute")
+    @api.post("/mcp/execute", tags=["Webhooks & System"], response_model=Dict[str, Any])
     async def execute_mcp_tool(call: McpToolCall) -> Dict[str, Any]:
         try:
             if call.name in ("aegispay_propose_agreement", "propose_contract"):
@@ -867,7 +938,7 @@ def create_app(
             return False
         return hmac.compare_digest(sig, _ws_ticket_signature(expires_at))
 
-    @api.get("/ws-ticket")
+    @api.get("/ws-ticket", tags=["Webhooks & System"], response_model=WsTicketResponse)
     async def issue_ws_ticket() -> Dict[str, Any]:
         """Short-lived WebSocket ticket, passed as ?ticket= because browsers cannot set WebSocket headers."""
         # The dashboard fetches this through its key-adding proxy, so the key never reaches the browser.

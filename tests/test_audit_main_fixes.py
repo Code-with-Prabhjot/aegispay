@@ -372,3 +372,16 @@ def test_contracts_submit_and_detail_serialize_multi_model_telemetry(tmp_path):
         assert detail_data["divergence"] == pytest.approx(0.05)
         assert detail_data["divergence_penalty_applied"] is False
         assert detail_data["arbitration_report"]["gemini_score"] == 0.96
+
+
+def test_auto_seed_on_empty_db_lifespan(tmp_path):
+    client, app = app_client(tmp_path, AUTO_SEED_ON_STARTUP=True)
+    with client:
+        res = client.get(f"{P}/contracts").json()
+        assert res["count"] == 3
+        states = {c["fsm_state"] for c in res["contracts"]}
+        assert states == {"SETTLED_COMPLETE", "PARTIAL_CAPTURED", "ESCROW_VOIDED_REFUNDED"}
+        scores = {round(c["verification_score"], 2) for c in res["contracts"]}
+        assert scores == {0.98, 0.74, 0.00}
+        led = client.get(f"{P}/ledger").json()
+        assert led["balanced"] is True

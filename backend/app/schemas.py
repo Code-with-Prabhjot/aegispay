@@ -393,3 +393,165 @@ from backend.app.schemas_v2 import (
 )
 
 
+
+
+class ContractListResponse(BaseModel):
+    contracts: list[SlaContractResponse] = Field(..., description="List of SLA contracts")
+    count: int = Field(..., description="Total count of contracts")
+
+
+class FsmTransitionItem(BaseModel):
+    from_state: Optional[str] = Field(default=None, description="Previous FSM state")
+    to_state: str = Field(..., description="Target FSM state")
+    reason: Optional[str] = Field(default=None, description="Transition trigger reason")
+    created_at: str = Field(..., description="ISO 8601 transition timestamp")
+
+
+class ContractDetailResponse(SlaContractResponse):
+    authorized_at: Optional[str] = Field(default=None, description="Authorization timestamp")
+    transitions: list[FsmTransitionItem] = Field(default_factory=list, description="FSM transition history")
+    arbitration_report: Optional[Dict[str, Any]] = Field(default=None, description="Arbitration report summary")
+
+
+class DemoScenarioResponse(ContractDetailResponse):
+    ledger_entries: list[Dict[str, Any]] = Field(default_factory=list, description="Ledger journal entries for scenario")
+    balances: Dict[str, int] = Field(default_factory=dict, description="Ledger account balances after scenario execution")
+
+
+class LedgerAuditResponse(BaseModel):
+    entries: list[DoubleEntryLedgerEntry] = Field(..., description="Double-entry journal records")
+    balances: Dict[str, int] = Field(..., description="Account balances map in micro-dollars")
+    balanced: bool = Field(..., description="Whether sum(debits) == sum(credits)")
+
+
+class LedgerBalanceResponse(BaseModel):
+    balanced: bool = Field(..., description="Balance conservation check outcome")
+    net_imbalance: int = Field(..., description="Net imbalance in micro-dollars (0 when balanced)")
+    net_imbalance_micros: int = Field(..., description="Net imbalance in micro-dollars")
+    total_deposited_micros: int = Field(..., description="Total deposits in micro-dollars")
+    total_balance_micros: int = Field(..., description="Total sum of all balances in micro-dollars")
+    total_transferred_micros: int = Field(..., description="Total transferred volume in micro-dollars")
+    account_drift_micros: Dict[str, int] = Field(default_factory=dict, description="Account-level drift anomalies")
+    negative_accounts: Dict[str, int] = Field(default_factory=dict, description="List of accounts with negative balances")
+    delta: int = Field(..., description="Imbalance delta")
+    balances: Dict[str, int] = Field(..., description="All account balances in micro-dollars")
+    invariant: str = Field(..., description="Formal accounting invariant rule")
+
+
+class LedgerAccountItem(BaseModel):
+    account: str = Field(..., description="Account identifier")
+    balance_micros: int = Field(..., description="Balance in micro-dollars")
+    balance_usd: str = Field(..., description="Formatted USD balance string")
+
+
+class LedgerAccountsResponse(BaseModel):
+    accounts: list[LedgerAccountItem] = Field(..., description="List of ledger accounts")
+    balances: Dict[str, int] = Field(..., description="All account balances map")
+    count: int = Field(..., description="Total account count")
+
+
+class HealthResponse(BaseModel):
+    status: str = Field(..., description="System health: ok or degraded")
+    paypal_mode: str = Field(..., description="PayPal engine mode: mock, sandbox, or live")
+    mock: bool = Field(..., description="Whether mock engine is active")
+    database: str = Field(..., description="Database connection status")
+    ledger_balanced: bool = Field(..., description="Double-entry ledger solvency status")
+
+
+class A2ANegotiateResponse(BaseModel):
+    parameters: Dict[str, Any] = Field(..., description="Negotiated SLA parameters")
+    offer: Optional[Dict[str, Any]] = Field(default=None, description="Signed SLA offer document")
+    agreement_id: Optional[str] = Field(default=None, description="Proposed or created agreement ID")
+    contract_id: Optional[str] = Field(default=None, description="Contract ID alias")
+    buyer_did: Optional[str] = Field(default=None, description="Buyer DID key")
+    worker_did: Optional[str] = Field(default=None, description="Worker DID key")
+    auth_id: Optional[str] = Field(default=None, description="PayPal authorization ID if created")
+    contract_created: bool = Field(default=False, description="Whether escrow authorization was generated")
+    agreed_budget_micros: int = Field(..., description="Final agreed budget in micro-dollars")
+    max_execution_seconds: float = Field(..., description="Max execution timeout")
+    agreed_timeout_seconds: float = Field(..., description="Agreed SLA timeout")
+    buyer_utility: float = Field(..., description="Buyer utility score")
+    worker_utility: float = Field(..., description="Worker utility score")
+    nash_product: float = Field(..., description="Nash bargaining product")
+    status: str = Field(..., description="Negotiation status")
+
+
+class VerifyIdentityResponse(BaseModel):
+    valid: bool = Field(..., description="Signature validity")
+    verified: bool = Field(..., description="Identity verification result")
+    agent_id: Optional[str] = Field(default=None, description="Agent DID")
+    public_key_hex: str = Field(..., description="Agent Ed25519 public key hex")
+
+
+class VaultSetupTokenResponse(BaseModel):
+    vault_id: str = Field(..., description="Vault token identifier")
+    setup_token: str = Field(..., description="Setup token identifier")
+    buyer_did: str = Field(..., description="Buyer DID key")
+    status: str = Field(..., description="Vault status: APPROVED")
+    payment_source: Dict[str, Any] = Field(..., description="Payment source descriptor")
+    max_amount_per_task_micros: int = Field(..., description="Task limit in micro-dollars")
+    max_daily_budget_micros: int = Field(..., description="Daily limit in micro-dollars")
+    is_frozen: int = Field(..., description="Circuit breaker lock status")
+
+
+class VaultVelocityResponse(BaseModel):
+    buyer_did: str = Field(..., description="Buyer DID key")
+    vault_id: str = Field(..., description="Vault identifier")
+    max_amount_per_task_micros: int = Field(..., description="Task limit in micro-dollars")
+    max_daily_budget_micros: int = Field(..., description="Daily limit in micro-dollars")
+    current_daily_spent_micros: int = Field(..., description="Running daily spent in micro-dollars")
+    window_reset_timestamp: int = Field(..., description="Epoch timestamp when daily window resets")
+    consecutive_void_count: int = Field(..., description="Consecutive void count")
+    is_frozen: int = Field(..., description="0 = active, 1 = frozen")
+    circuit_breaker_status: str = Field(..., description="ACTIVE or LOCKED")
+    velocity_allowed: bool = Field(..., description="Whether buyer is permitted to open new contracts")
+
+
+class VaultResetResponse(BaseModel):
+    status: str = Field(..., description="Reset outcome status: unfrozen")
+    vault: Dict[str, Any] = Field(..., description="Vault record after reset")
+
+
+class SweeperRunResponse(BaseModel):
+    status: str = Field(..., description="Sweeper execution status")
+    scanned_count: int = Field(..., description="Number of evaluated contracts")
+    refreshed_count: int = Field(..., description="Reauthorized holds count")
+    refreshed_agreements: list[str] = Field(default_factory=list, description="Reauthorized agreement IDs")
+    voided_count: int = Field(..., description="Voided expired holds count")
+    voided_agreements: list[str] = Field(default_factory=list, description="Voided agreement IDs")
+    failed_count: int = Field(..., description="Failed operations count")
+    failed_agreements: list[str] = Field(default_factory=list, description="Failed agreement IDs")
+    solvency_status: str = Field(..., description="SOLVENT or INSOLVENT")
+    solvency: bool = Field(..., description="Ledger conservation status")
+    balanced: bool = Field(..., description="Ledger balanced status")
+    total_locked_volume_micros: int = Field(..., description="Remaining locked micros")
+    total_locked_volume_usd: str = Field(..., description="Formatted USD locked volume")
+    timestamp: str = Field(..., description="Execution ISO timestamp")
+
+
+class SweeperStatusResponse(BaseModel):
+    stranded_settlement_count: int = Field(..., description="Stranded settlement count")
+    stranded_settlements: list[str] = Field(default_factory=list, description="Stranded agreement IDs")
+    unpaid_capture_count: int = Field(..., description="Unpaid capture count")
+    unpaid_captures: list[str] = Field(default_factory=list, description="Unpaid capture agreement IDs")
+    active_authorizations_count: int = Field(..., description="Active holds count")
+    total_locked_volume_micros: int = Field(..., description="Locked volume in micro-dollars")
+    total_locked_volume_usd: str = Field(..., description="Formatted USD locked volume")
+    oldest_active_hold_age_hours: Optional[float] = Field(default=None, description="Oldest hold age in hours")
+    oldest_active_hold_agreement_id: Optional[str] = Field(default=None, description="Oldest hold agreement ID")
+    near_expiry_count: int = Field(..., description="Holds within expiration buffer")
+    solvency_status: str = Field(..., description="SOLVENT or INSOLVENT")
+    solvency: bool = Field(..., description="Solvency check status")
+    balanced: bool = Field(..., description="Conservation status")
+    timestamp: str = Field(..., description="Status check ISO timestamp")
+
+
+class WebhookResponse(BaseModel):
+    status: str = Field(..., description="Webhook processing status: processed, duplicate, or skipped")
+    event_id: str = Field(..., description="PayPal Webhook delivery event ID")
+    agreement_id: Optional[str] = Field(default=None, description="Associated agreement ID if matched")
+
+
+class WsTicketResponse(BaseModel):
+    ticket: Optional[str] = Field(default=None, description="HMAC-signed short-lived WebSocket ticket")
+    expires_in: Optional[int] = Field(default=None, description="Ticket TTL in seconds")

@@ -392,6 +392,7 @@ class EscrowOrchestrator:
         test_suite: Optional[str] = None,
         semantic_score: Optional[float] = None,
         runtime: Optional[str] = None,
+        dispatch_payout: bool = True,
     ) -> fsm.ContractRecord:
         """Worker delivery -> sandbox -> arbitration -> capture/void -> payout dispatch."""
         async with self._lock:
@@ -463,7 +464,7 @@ class EscrowOrchestrator:
             if split.decision == "VOID_AUTHORIZATION":
                 await self._void(c, report)
             else:
-                await self._capture_and_payout(c, report)
+                await self._capture_and_payout(c, report, dispatch_payout=dispatch_payout)
             return c
 
     def _contract_awaiting_verdict(self, agreement_id: str) -> fsm.ContractRecord:
@@ -537,7 +538,9 @@ class EscrowOrchestrator:
             self._settle_vault(c, 0, is_void=True, penalize=penalize_vault)
             self.repo.save_contract(c)
 
-    async def _capture_and_payout(self, c: fsm.ContractRecord, report: ArbitrationReport) -> None:
+    async def _capture_and_payout(
+        self, c: fsm.ContractRecord, report: ArbitrationReport, dispatch_payout: bool = True
+    ) -> None:
         split = report.settlement
         try:
             res = await self.engine.capture_authorization(
@@ -561,13 +564,14 @@ class EscrowOrchestrator:
             self.ledger.record_settlement(c.agreement_id, split)
             self._settle_vault(c, split.capture_micros, is_void=False)
             self.repo.save_contract(c)
-        try:
-            await self._dispatch_payout(c, attempt=1)
-        except UpstreamError:
-            # The capture stands (the buyer has paid); report the contract as captured rather than
-            # failing the request. retry_payout dispatches it and /sweeper/status lists it.
-            logger.exception("Payout dispatch failed after capture for %s; retry with payout/retry",
-                             c.agreement_id)
+        if dispatch_payout:
+            try:
+                await self._dispatch_payout(c, attempt=1)
+            except UpstreamError:
+                # The capture stands (the buyer has paid); report the contract as captured rather than
+                # failing the request. retry_payout dispatches it and /sweeper/status lists it.
+                logger.exception("Payout dispatch failed after capture for %s; retry with payout/retry",
+                                 c.agreement_id)
 
     # ------------------------------------------------------------------- payout
     async def _dispatch_payout(self, c: fsm.ContractRecord, attempt: int) -> None:
@@ -766,10 +770,19 @@ class EscrowOrchestrator:
         }
 
     # --------------------------------------------------------------------- demo
-    async def run_scenario(self, name: str, payout_outcome: str = "succeeded") -> fsm.ContractRecord:
+    async def run_scenario(
+        self,
+        name: str,
+        payout_outcome: str = "succeeded",
+        dispatch_payout: bool = True,
+        semantic_score: Optional[float] = None,
+        agreement_id: Optional[str] = None,
+    ) -> fsm.ContractRecord:
         scenario: PresetScenario = get_scenario(name)
+        agr_id = agreement_id or f"agr_{scenario.scenario_id}_{uuid.uuid4().hex[:6]}"
+        score_val = semantic_score if semantic_score is not None else scenario.semantic_score
         c = await self.create_contract(SlaContractCreate(
-            agreement_id=f"agr_{scenario.scenario_id}_{uuid.uuid4().hex[:6]}",
+            agreement_id=agr_id,
             buyer_agent_id="buyer-agent-demo",
             worker_agent_id="worker-agent-alpha",
             worker_paypal_email=self.settings.WORKER_SANDBOX_EMAIL,
@@ -777,12 +790,43 @@ class EscrowOrchestrator:
             task_description=scenario.title + " - " + scenario.description,
             test_suite=scenario.buyer_test_code,
         ))
-        c = await self.submit_work(c.agreement_id, scenario.worker_code,
-                                   semantic_score=scenario.semantic_score)
-        if c.fsm_state == FsmState.PAYOUT_DISPATCHED and c.paypal_payout_batch_id:
+        c = await self.submit_work(
+            c.agreement_id,
+            scenario.worker_code,
+            semantic_score=score_val,
+            dispatch_payout=dispatch_payout,
+        )
+        if dispatch_payout and c.fsm_state == FsmState.PAYOUT_DISPATCHED and c.paypal_payout_batch_id:
             await self.handle_webhook(self.build_payout_event(c.paypal_payout_batch_id, payout_outcome))
             c = self.get(c.agreement_id)
         return c
+
+
+async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.ContractRecord]:
+    """
+    Seeds the database with the 3 canonical demo scenario contracts:
+    1. Scenario 1: Clean Pass (S = 0.98, SETTLED_COMPLETE, full capture, double-entry payout journal entries).
+    2. Scenario 2: Partial Defect (S = 0.74, PARTIAL_CAPTURED, pro-rata partial capture + hold release).
+    3. Scenario 3: Malicious Injection (S = 0.00, ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged).
+    """
+    c1 = await orch.run_scenario(
+        "CLEAN_PASS",
+        payout_outcome="succeeded",
+        dispatch_payout=True,
+        semantic_score=0.92,
+        agreement_id="agr_canonical_clean_pass",
+    )
+    c2 = await orch.run_scenario(
+        "PARTIAL_DEFECT",
+        dispatch_payout=False,
+        semantic_score=0.56,
+        agreement_id="agr_canonical_partial_defect",
+    )
+    c3 = await orch.run_scenario(
+        "MALICIOUS_INJECTION",
+        agreement_id="agr_canonical_malicious_injection",
+    )
+    return [c1, c2, c3]
 
 
 Orchestrator = EscrowOrchestrator
