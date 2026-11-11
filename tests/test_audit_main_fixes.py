@@ -385,3 +385,24 @@ def test_auto_seed_on_empty_db_lifespan(tmp_path):
         assert scores == {0.98, 0.74, 0.00}
         led = client.get(f"{P}/ledger").json()
         assert led["balanced"] is True
+
+
+def test_backend_annotations_resolve_without_name_error():
+    import importlib
+    import inspect
+    import pkgutil
+
+    for mod_info in pkgutil.walk_packages(["backend"], prefix="backend."):
+        mod = importlib.import_module(mod_info.name)
+        inspect.get_annotations(mod)
+        for val in list(vars(mod).values()):
+            if getattr(val, "__module__", None) != mod_info.name:
+                continue
+            if inspect.isfunction(val) or inspect.isclass(val):
+                inspect.get_annotations(val)
+            if inspect.isclass(val):
+                for mval in list(vars(val).values()):
+                    fn = mval.__func__ if isinstance(mval, (staticmethod, classmethod)) else mval
+                    if inspect.isfunction(fn):
+                        inspect.get_annotations(fn)
+
