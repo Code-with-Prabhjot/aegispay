@@ -106,9 +106,7 @@ export function getWebSocketUrl(path = "/ws/ledger"): string {
  */
 export async function fetchWebSocketTicket(): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE}/ws-ticket`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { ticket?: string | null };
+    const body = await request<{ ticket?: string | null }>("/ws-ticket");
     return body.ticket ?? null;
   } catch {
     return null;
@@ -125,23 +123,35 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response;
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  init?.signal?.addEventListener("abort", onAbort, { once: true });
+  if (init?.signal?.aborted) controller.abort();
+  const timeout = setTimeout(() => controller.abort(), init?.method === "POST" ? 90000 : 6000);
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${API_BASE}${path}`, {
       ...init,
+      signal: controller.signal,
       cache: "no-store",
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
+    if (!res.ok) {
+      throw new ApiError(`${res.status} ${res.statusText} for ${path}`, res.status);
+    }
+    return (await res.json()) as T;
   } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (controller.signal.aborted || init?.signal?.aborted) {
+      throw new ApiError("Backend request timed out. The backend may still be waking up.");
+    }
     throw new ApiError(`Backend unreachable: ${(e as Error).message}`);
+  } finally {
+    clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", onAbort);
   }
-  if (!res.ok) {
-    throw new ApiError(`${res.status} ${res.statusText} for ${path}`, res.status);
-  }
-  return (await res.json()) as T;
 }
 
-export const getHealth = () => request<HealthResponse>("/health");
+export const getHealth = (signal?: AbortSignal) => request<HealthResponse>("/health", { signal });
 
 interface RawTransition {
   from_state: FsmTransition["from_state"];
@@ -164,21 +174,22 @@ function normalizeContract<T extends SlaContractResponse>(raw: T & { transitions
   } as T;
 }
 
-export async function listContracts(): Promise<SlaContractResponse[]> {
-  const data = await request<SlaContractResponse[] | { contracts: SlaContractResponse[] }>("/contracts");
+export async function listContracts(signal?: AbortSignal): Promise<SlaContractResponse[]> {
+  const data = await request<SlaContractResponse[] | { contracts: SlaContractResponse[] }>("/contracts", { signal });
   return (Array.isArray(data) ? data : data.contracts ?? []).map(normalizeContract);
 }
 
-export const getContract = async (id: string) =>
-  normalizeContract(await request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}`));
+export const getContract = async (id: string, signal?: AbortSignal) =>
+  normalizeContract(await request<SlaContractResponse>(`/contracts/${encodeURIComponent(id)}`, { signal }));
 
 export async function getAgreementDetail(id: string): Promise<AgreementDetailResponse> {
   try {
-    const raw = await request<AgreementDetailResponse>(`/agreements/${encodeURIComponent(id)}/detail`);
+    const raw = await request<AgreementDetailResponse>(`/contracts/${encodeURIComponent(id)}/detail`);
     return normalizeContract(raw);
   } catch (err) {
     // Alias fallback
-    const raw = await request<AgreementDetailResponse>(`/contracts/${encodeURIComponent(id)}/detail`);
+    if (!(err instanceof ApiError) || err.status !== 404) throw err;
+    const raw = await request<AgreementDetailResponse>(`/agreements/${encodeURIComponent(id)}/detail`);
     return normalizeContract(raw);
   }
 }
@@ -199,7 +210,10 @@ export const runScenario = async (name: ScenarioName) =>
     await request<SlaContractResponse>(`/demo/scenarios/${encodeURIComponent(name.toLowerCase())}`, { method: "POST" }),
   );
 
-export const getLedger = () => request<LedgerResponse>("/ledger");
+export const seedDemoScenarios = () =>
+  request<{ contracts: SlaContractResponse[]; count: number }>("/demo/scenarios/all", { method: "POST" });
+
+export const getLedger = (signal?: AbortSignal) => request<LedgerResponse>("/ledger", { signal });
 
 export const getVaultStatus = async (vaultId = "vault_buyer_primary"): Promise<VaultVelocityStatus> => {
   try {

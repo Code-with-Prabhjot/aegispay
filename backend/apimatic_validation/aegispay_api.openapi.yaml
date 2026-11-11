@@ -217,6 +217,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/demo/scenarios/all:
+    post:
+      tags:
+      - Contracts & Escrow
+      summary: Seed Demo
+      description: Create missing canonical examples without charging PayPal or duplicating
+        existing examples.
+      operationId: seed_demo_api_v1_demo_scenarios_all_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractListResponse'
+      security:
+      - APIKeyHeader: []
   /api/v1/demo/scenarios/{name}:
     post:
       tags:

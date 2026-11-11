@@ -2,190 +2,163 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./api";
-import { DemoStore, FIXTURE_LEDGER } from "./fixtures";
-import type { LedgerResponse, ScenarioName, SlaContractResponse } from "./types";
+import { DemoStore } from "./fixtures";
+import type { HealthResponse, LedgerResponse, ScenarioName, SlaContractResponse } from "./types";
 
 export type Connection = "connecting" | "online" | "offline";
-
-const POLL_MS = 2000;
+export const POLL_MS = 3000;
 const EMPTY_LEDGER: LedgerResponse = { entries: [], balances: {} };
-
-function timeoutPromise<T>(p: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Timeout")), ms);
-    p.then(
-      (val) => {
-        clearTimeout(timer);
-        resolve(val);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
 
 export function useAegis() {
   const [connection, setConnection] = useState<Connection>("connecting");
   const [demoMode, setDemoMode] = useState(false);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
   const [contracts, setContracts] = useState<SlaContractResponse[]>([]);
   const [ledger, setLedger] = useState<LedgerResponse>(EMPTY_LEDGER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<SlaContractResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<ScenarioName | null>(null);
+  const [busy, setBusy] = useState<ScenarioName | "SEED" | null>(null);
   const demo = useRef<DemoStore | null>(null);
-  const selectedRef = useRef<string | null>(null);
-  selectedRef.current = selectedId;
+  const generation = useRef(0);
+  const inFlight = useRef<{ controller: AbortController; task: Promise<void> } | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (demoMode) {
-      const store = (demo.current ??= new DemoStore());
-      store.tick();
-      const list = store.list();
-      setContracts(list);
-      setLedger(store.ledger());
-      const id = selectedRef.current;
-      setSelected(id ? (list.find((c) => c.agreement_id === id) ?? null) : null);
-      return;
-    }
-    try {
-      await timeoutPromise(api.getHealth(), 2500);
-      let list: SlaContractResponse[];
-      let led: LedgerResponse;
+  const refresh = useCallback((): Promise<void> => {
+    if (inFlight.current) return inFlight.current.task;
+    const current = generation.current;
+    const controller = new AbortController();
+    const task = (async () => {
+      if (demoMode) {
+        const store = (demo.current ??= new DemoStore());
+        store.tick();
+        const list = store.list();
+        setContracts(list);
+        setLedger(store.ledger());
+        setSelectedId((id) => id ?? list[0]?.agreement_id ?? null);
+        return;
+      }
+      const timer = setTimeout(() => controller.abort(), 6000);
       try {
-        [list, led] = await timeoutPromise(
-          Promise.all([api.listContracts(), api.getLedger()]),
-          2500
-        );
-      } catch {
-        const store = (demo.current ??= new DemoStore(true));
-        list = store.list();
-        led = FIXTURE_LEDGER;
+        const [status, list, led] = await Promise.all([
+          api.getHealth(controller.signal),
+          api.listContracts(controller.signal),
+          api.getLedger(controller.signal),
+        ]);
+        if (current !== generation.current) return;
+        setHealth(status);
+        setConnection("online");
+        setError(null);
+        // Empty lists and zero balances are valid live responses.
+        setContracts(list);
+        setLedger(led);
+        setSelectedId((id) => list.some((c) => c.agreement_id === id) ? id : list[0]?.agreement_id ?? null);
+      } catch (e) {
+        if (current !== generation.current) return;
+        controller.abort();
+        setConnection("offline");
+        setError((e as Error).message);
+        // Preserve the last successful snapshot; demo data requires an explicit choice.
+      } finally {
+        clearTimeout(timer);
       }
-
-      // Auto-hydrate fallback if backend returns empty array []
-      if (!list || list.length === 0) {
-        const store = (demo.current ??= new DemoStore(true));
-        list = store.list();
-      }
-
-      // Ensure Ledger Balances Render: if returns zeros or empty, fall back to fixture ledger accounts
-      const isZeroOrEmptyLedger =
-        !led ||
-        !led.balances ||
-        Object.keys(led.balances).length === 0 ||
-        Object.values(led.balances).every((v) => v === 0);
-
-      if (isZeroOrEmptyLedger) {
-        led = FIXTURE_LEDGER;
-      }
-
-      setConnection("online");
-      setError(null);
-      setContracts(list);
-      setLedger(led);
-      const id = selectedRef.current;
-      if (id) {
-        const inList = list.find((c) => c.agreement_id === id);
-        if (inList?.history) setSelected(inList);
-        else {
-          try {
-            setSelected(await api.getContract(id));
-          } catch {
-            setSelected(inList ?? null);
-          }
-        }
-      } else if (list.length > 0) {
-        setSelectedId(list[0].agreement_id);
-      }
-    } catch {
-      // Fallback on timeout or backend error
-      const store = (demo.current ??= new DemoStore(true));
-      const list = store.list();
-      const led = FIXTURE_LEDGER;
-      setContracts(list);
-      setLedger(led);
-      setConnection("online");
-      setError(null);
-      const id = selectedRef.current;
-      if (id) {
-        setSelected(list.find((c) => c.agreement_id === id) ?? list[0] ?? null);
-      } else if (list.length > 0) {
-        setSelectedId(list[0].agreement_id);
-      }
-    }
+    })();
+    inFlight.current = { controller, task };
+    void task.finally(() => {
+      if (inFlight.current?.task === task) inFlight.current = null;
+    });
+    return task;
   }, [demoMode]);
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, POLL_MS);
-    return () => clearInterval(t);
+    void refresh();
+    const timer = setInterval(() => void refresh(), POLL_MS);
+    return () => {
+      clearInterval(timer);
+      generation.current += 1;
+      inFlight.current?.controller.abort();
+      inFlight.current = null;
+    };
   }, [refresh]);
 
-  // Selecting a row should show its detail immediately, not after the next poll.
   useEffect(() => {
-    if (!selectedId) {
-      setSelected(null);
-      return;
-    }
-    const fromList = contracts.find((c) => c.agreement_id === selectedId);
-    if (fromList) setSelected(fromList);
-    if (!demoMode && connection === "online" && !fromList?.history) {
-      api.getContract(selectedId).then(setSelected).catch(() => undefined);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+    const fromList = contracts.find((c) => c.agreement_id === selectedId) ?? null;
+    setSelected(fromList);
+    if (!selectedId || !fromList || demoMode || connection !== "online" || fromList.history) return;
+    let active = true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    api.getContract(selectedId, controller.signal)
+      .then((detail) => { if (active) setSelected(detail); })
+      .catch(() => undefined)
+      .finally(() => clearTimeout(timer));
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [selectedId, contracts, demoMode, connection]);
 
-  const run = useCallback(
-    async (name: ScenarioName) => {
-      setBusy(name);
-      try {
-        const created = demoMode
-          ? (demo.current ??= new DemoStore()).run(name)
-          : await api.runScenario(name);
-        setSelectedId(created.agreement_id);
-        await refresh();
-      } catch (e) {
-        setError((e as Error).message);
-        if (!demoMode) setConnection("offline");
-      } finally {
-        setBusy(null);
-      }
-    },
-    [demoMode, refresh],
-  );
+  // A mutation must fetch a fresh snapshot even if an older poll was in flight.
+  const refreshAfterMutation = useCallback(async () => {
+    generation.current += 1;
+    inFlight.current?.controller.abort();
+    inFlight.current = null;
+    await refresh();
+  }, [refresh]);
 
-  const enableDemo = useCallback(() => {
-    demo.current = new DemoStore();
+  const run = useCallback(async (name: ScenarioName) => {
+    const current = generation.current;
+    setBusy(name);
+    setError(null);
+    try {
+      const created = demoMode
+        ? (demo.current ??= new DemoStore()).run(name)
+        : await api.runScenario(name);
+      if (current !== generation.current) return;
+      setSelectedId(created.agreement_id);
+      await refreshAfterMutation();
+    } catch (e) {
+      if (current === generation.current) setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }, [demoMode, refreshAfterMutation]);
+
+  const seed = useCallback(async () => {
+    const current = generation.current;
+    setBusy("SEED");
+    setError(null);
+    try {
+      await api.seedDemoScenarios();
+      if (current === generation.current) await refreshAfterMutation();
+    } catch (e) {
+      if (current === generation.current) setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }, [refreshAfterMutation]);
+
+  const switchMode = useCallback((enabled: boolean) => {
+    generation.current += 1;
+    inFlight.current?.controller.abort();
+    inFlight.current = null;
+    demo.current = enabled ? new DemoStore() : null;
     setContracts([]);
     setLedger(EMPTY_LEDGER);
     setSelectedId(null);
-    setDemoMode(true);
-  }, []);
-
-  const disableDemo = useCallback(() => {
-    setContracts([]);
-    setLedger(EMPTY_LEDGER);
-    setSelectedId(null);
+    setSelected(null);
+    setError(null);
+    setHealth(null);
     setConnection("connecting");
-    setDemoMode(false);
+    setDemoMode(enabled);
   }, []);
+
+  const getDemoDetail = useCallback((id: string) => demo.current?.getDetail(id) ?? null, []);
 
   return {
-    connection,
-    demoMode,
-    contracts,
-    ledger,
-    selectedId,
-    selected,
-    error,
-    busy,
-    setSelectedId,
-    refresh,
-    run,
-    enableDemo,
-    disableDemo,
+    connection, demoMode, health, contracts, ledger, selectedId, selected, error, busy,
+    setSelectedId, refresh, run, seed, getDemoDetail,
+    enableDemo: useCallback(() => switchMode(true), [switchMode]),
+    disableDemo: useCallback(() => switchMode(false), [switchMode]),
   };
 }

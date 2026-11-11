@@ -10,6 +10,8 @@ services:
     envVars:
       - key: PAYPAL_MODE
         value: mock
+      - key: AUTO_SEED_ON_STARTUP
+        value: "true"
       # No persistent disk is attached, so state resets on every deploy/restart.
       # Attach a Render disk at /app/data to keep it.
       - key: DATABASE_URL

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "ag-grid-community": "^31.3.4",
@@ -23,6 +24,7 @@
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
+    "react-test-renderer": "18.3.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   }

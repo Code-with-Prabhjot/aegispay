@@ -30,8 +30,14 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
   const generationRef = useRef(0);
 
   const connect = useCallback(async () => {
-    if (!enabled || typeof window === "undefined") return;
+    if (!enabled || typeof window === "undefined") {
+      setStatus("disconnected");
+      return;
+    }
     const generation = ++generationRef.current;
+
+    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
 
     // Clean up any existing connection
     if (wsRef.current) {
@@ -59,6 +65,7 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (generation !== generationRef.current) return;
         setStatus("connected");
         reconnectAttemptRef.current = 0;
 
@@ -72,6 +79,7 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
       };
 
       ws.onmessage = (event) => {
+        if (generation !== generationRef.current) return;
         try {
           const envelope: WebSocketEnvelope = JSON.parse(event.data);
           const { event_type, agreement_id, data } = envelope;
@@ -144,6 +152,7 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
       };
 
       ws.onerror = () => {
+        if (generation !== generationRef.current) return;
         // Switch to alternate path on next attempt
         pathIndexRef.current = (pathIndexRef.current + 1) % WS_PATHS.length;
       };
@@ -165,7 +174,10 @@ export function useLedgerWebSocket(callbacks: WebSocketCallbacks = {}, enabled =
         }
       };
     } catch {
+      if (generation !== generationRef.current) return;
       setStatus("disconnected");
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = setTimeout(() => void connect(), 8000);
     }
   }, [enabled]);
 

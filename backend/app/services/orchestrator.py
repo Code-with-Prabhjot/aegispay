@@ -126,6 +126,7 @@ class EscrowOrchestrator:
         self.clock = clock
         self.broadcaster = broadcaster
         self._lock = asyncio.Lock()  # serialise state-changing flows (single-process demo)
+        self._seed_lock = asyncio.Lock()
 
     def set_broadcaster(self, broadcaster: Any) -> None:
         """Sets or updates the real-time event broadcaster."""
@@ -809,24 +810,28 @@ async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.Contr
     2. Scenario 2: Partial Defect (S = 0.74, PARTIAL_CAPTURED, pro-rata partial capture + hold release).
     3. Scenario 3: Malicious Injection (S = 0.00, ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged).
     """
-    c1 = await orch.run_scenario(
-        "CLEAN_PASS",
-        payout_outcome="succeeded",
-        dispatch_payout=True,
-        semantic_score=0.92,
-        agreement_id="agr_canonical_clean_pass",
-    )
-    c2 = await orch.run_scenario(
-        "PARTIAL_DEFECT",
-        dispatch_payout=False,
-        semantic_score=0.56,
-        agreement_id="agr_canonical_partial_defect",
-    )
-    c3 = await orch.run_scenario(
-        "MALICIOUS_INJECTION",
-        agreement_id="agr_canonical_malicious_injection",
-    )
-    return [c1, c2, c3]
+    if orch.settings.PAYPAL_MODE != "mock" or not getattr(orch.engine, "is_mock", False):
+        raise PolicyViolationError("Demo seeding requires PAYPAL_MODE=mock")
+
+    # Separate from the settlement lock: arbitration releases that lock while running tests.
+    # Serialize repeated seed requests across the entire three-scenario operation.
+    async with orch._seed_lock:
+        contracts = []
+        for name, score, dispatch in (
+            ("CLEAN_PASS", 0.92, True),
+            ("PARTIAL_DEFECT", 0.56, False),
+            ("MALICIOUS_INJECTION", None, True),
+        ):
+            agreement_id = f"agr_canonical_{name.lower()}"
+            try:
+                contract = orch.get(agreement_id)
+            except NotFoundError:
+                contract = await orch.run_scenario(
+                    name, agreement_id=agreement_id,
+                    semantic_score=score, dispatch_payout=dispatch,
+                )
+            contracts.append(contract)
+        return contracts
 
 
 Orchestrator = EscrowOrchestrator

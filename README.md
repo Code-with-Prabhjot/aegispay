@@ -426,6 +426,28 @@ npm run dev
 ```
 The Mission Control Dashboard opens at `http://localhost:3000/dashboard`.
 
+The dashboard reads contracts and ledger balances from the API every 3 seconds. Reads have a
+6-second timeout and retry automatically while the backend wakes up. Empty contract lists and
+zero balances are displayed as returned by the backend. If a request fails, the dashboard marks
+the API offline and keeps its last successful snapshot. **Use demo data** explicitly switches
+to local fixtures; **Try live backend** switches back. Demo mode also disables live WebSocket
+updates. Contract-detail failures display an error rather than synthetic tests or audit hashes.
+
+On an empty mock database, **Seed Demo Scenarios** calls `POST /api/v1/demo/scenarios/all`.
+This creates the three canonical examples, skips existing canonical IDs, and serializes repeated
+requests within the backend process. Set `AUTO_SEED_ON_STARTUP=true` to seed an empty database
+on boot; this is enabled in `.env.example` and `render.yaml`. Seeding requires both
+`PAYPAL_MODE=mock` and a mock payment engine. All seed requests use the normal API key check.
+
+WebSocket events trigger a fresh API snapshot when available. If a hosting proxy does not
+support WebSocket upgrades, HTTP polling continues and the badge reads **Live polling (3s)**.
+Browsers can also connect directly to a backend WebSocket using `NEXT_PUBLIC_WS_URL`; configure
+the backend's `CORS_ALLOWED_ORIGINS` to include the dashboard's origin. Copy
+`frontend/.env.example` to `frontend/.env.local` and set the server-only `BACKEND_URL` before
+building for a remote backend. Set the same server-only `API_AUTH_KEY` on both services.
+
+Run `npm test`, `npm run lint`, and `npm run build` in `frontend/` to verify the dashboard.
+
 ---
 
 ## Automated E2E Scenario Runner (3 Test Scenarios)

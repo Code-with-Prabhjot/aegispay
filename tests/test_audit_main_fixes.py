@@ -406,3 +406,63 @@ def test_backend_annotations_resolve_without_name_error():
                     if inspect.isfunction(fn):
                         inspect.get_annotations(fn)
 
+
+
+def test_startup_seed_setting_is_honored_outside_pytest(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    client, _ = app_client(tmp_path, AUTO_SEED_ON_STARTUP=False)
+    with client:
+        assert client.get(f"{P}/contracts").json()["count"] == 0
+
+
+@pytest.mark.parametrize("mode", ["sandbox", "live"])
+def test_startup_never_seeds_non_mock_payment_modes(tmp_path, mode, monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    client, _ = app_client(tmp_path, PAYPAL_MODE=mode, API_AUTH_KEY=KEY, AUTO_SEED_ON_STARTUP=True)
+    with client:
+        assert client.get(f"{P}/contracts", headers=H).json()["count"] == 0
+        assert client.post(f"{P}/demo/scenarios/all", headers=H).status_code == 400
+
+
+def test_startup_never_seeds_a_real_engine_even_in_mock_config(tmp_path):
+    client, app = app_client(tmp_path, AUTO_SEED_ON_STARTUP=True)
+    app.state.orchestrator.engine.is_mock = False
+    with client:
+        assert client.get(f"{P}/contracts").json()["count"] == 0
+        assert client.post(f"{P}/demo/scenarios/all").status_code == 400
+
+
+def test_seed_all_requires_key_and_is_idempotent(tmp_path):
+    client, _ = app_client(tmp_path, API_AUTH_KEY=KEY, AUTO_SEED_ON_STARTUP=False)
+    with client:
+        assert client.post(f"{P}/demo/scenarios/all").status_code == 401
+        first = client.post(f"{P}/demo/scenarios/all", headers=H)
+        assert first.status_code == 200, first.text
+        assert first.json()["count"] == 3
+        before = client.get(f"{P}/ledger", headers=H).json()
+        again = client.post(f"{P}/demo/scenarios/all", headers=H)
+        assert again.status_code == 200, again.text
+        assert again.json() == first.json()
+        assert client.get(f"{P}/contracts", headers=H).json()["count"] == 3
+        assert client.get(f"{P}/ledger", headers=H).json() == before
+        assert before["balanced"] is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_seeding_does_not_duplicate_ledger_entries(tmp_path):
+    import asyncio
+    from backend.app.services.orchestrator import seed_canonical_scenarios
+
+    _, app = app_client(tmp_path, AUTO_SEED_ON_STARTUP=False)
+    orch = app.state.orchestrator
+    try:
+        results = await asyncio.gather(*(seed_canonical_scenarios(orch) for _ in range(3)))
+        assert all([c.agreement_id for c in result] == [c.agreement_id for c in results[0]] for result in results)
+        assert len(app.state.repo.list_contracts()) == 3
+        journal = app.state.ledger.to_records()
+        await seed_canonical_scenarios(orch)
+        assert app.state.ledger.to_records() == journal
+        assert app.state.ledger.verify_balance_conservation()
+    finally:
+        await orch.engine.close()
+        app.state.repo.db.close()

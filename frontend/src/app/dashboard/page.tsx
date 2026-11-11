@@ -8,7 +8,6 @@ import Logo from "@/components/landing/Logo";
 import FsmTimeline from "@/components/FsmTimeline";
 import LedgerPanel from "@/components/LedgerPanel";
 import VaultManagementModal from "@/components/VaultManagementModal";
-import { API_BASE } from "@/lib/api";
 import { microsToUsd } from "@/lib/format";
 import type { ScenarioName } from "@/lib/types";
 import { useAegis } from "@/lib/useAegis";
@@ -94,10 +93,10 @@ export default function Dashboard() {
   if (dynGemini !== undefined && dynGemini !== null) {
     consensusGemini = dynGemini;
     consensusClaude = dynClaude ?? undefined;
-  } else if (isVetoed) {
+  } else if (a.demoMode && isVetoed) {
     consensusGemini = 0.0;
     consensusClaude = 0.0;
-  } else if (compositeScore !== null && compositeScore !== undefined) {
+  } else if (a.demoMode && compositeScore !== null && compositeScore !== undefined) {
     if (compositeScore >= 0.90) {
       consensusGemini = 0.98;
       consensusClaude = 0.94;
@@ -119,13 +118,13 @@ export default function Dashboard() {
         a.selected?.verification_score === 0));
 
   const statusClass =
-    a.connection === "online" ? "up"
-    : a.connection === "offline" ? (a.demoMode ? "up" : "down")
+    a.demoMode || a.connection === "online" ? "up"
+    : a.connection === "offline" ? "down"
     : "";
 
   const statusLabel =
     a.demoMode ? "Demo data mode (offline)"
-    : a.connection === "online" ? "API online (mock PayPal)"
+    : a.connection === "online" ? `API online (${a.health?.paypal_mode ?? "unknown"} PayPal)`
     : a.connection === "offline" ? "API offline"
     : "checking...";
 
@@ -194,13 +193,25 @@ export default function Dashboard() {
 
             {a.connection === "offline" && !a.demoMode && (
               <div className="alert" role="alert">
-                Can&apos;t reach the backend at <code>{API_BASE}</code>. In another terminal run <code>uvicorn backend.app.main:app --port 8000</code>, or{" "}
+                The backend is unavailable or still waking up. Retrying automatically. Previously loaded data may be out of date. You can also{" "}
                 <button onClick={a.enableDemo} className="underline font-bold text-cyan-300 hover:text-cyan-200">
                   use demo data
                 </button>.
+                {a.error && <p className="mt-2 text-xs">{a.error}</p>}
               </div>
             )}
             {a.error && a.connection !== "offline" && <div className="alert">{a.error}</div>}
+
+            {!a.demoMode && a.connection === "online" && a.contracts.length === 0 && (
+              <div className="alert" role="status">
+                No contracts yet. Create an agreement or run a scenario below.
+                {a.health?.mock === true && (
+                  <button onClick={a.seed} disabled={a.busy !== null} className="btn sm ml-3">
+                    {a.busy === "SEED" ? "Seeding demo scenarios..." : "Seed Demo Scenarios"}
+                  </button>
+                )}
+              </div>
+            )}
 
             <section className="scen">
               {SCENARIOS.map((s) => (
@@ -293,6 +304,9 @@ export default function Dashboard() {
                   selectedId={a.selectedId}
                   onSelect={a.setSelectedId}
                   onRefresh={a.refresh}
+                  connection={a.connection}
+                  demoMode={a.demoMode}
+                  getDemoDetail={a.getDemoDetail}
                 />
               </div>
 

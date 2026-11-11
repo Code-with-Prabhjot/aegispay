@@ -56,5 +56,8 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm --prefix frontend ci
 
+      - name: Test Dashboard Data Loading
+        run: npm --prefix frontend test
+
       - name: Build Frontend (Next.js & Typecheck)
         run: npm --prefix frontend run build

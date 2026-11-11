@@ -22,8 +22,8 @@ import {
 } from "@/lib/types";
 import { formatBudget, microsToUsd, stateColor } from "@/lib/format";
 import * as api from "@/lib/api";
-import { DemoStore } from "@/lib/fixtures";
 import { useLedgerWebSocket } from "@/lib/useLedgerWebSocket";
+import type { Connection } from "@/lib/useAegis";
 
 // ----------------------------------------------------------------------------
 // Custom Cell Renderers
@@ -65,11 +65,19 @@ function AgreementIdCell(p: ICellRendererParams<SlaContractResponse, string>) {
 // AG Grid Enterprise Master-Detail Nested Sub-View (3 Tabs + Audit Proof Bar)
 // ----------------------------------------------------------------------------
 
-export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContractResponse>) {
+interface DetailSource {
+  demoMode?: boolean;
+  getDemoDetail?: (id: string) => AgreementDetailResponse | null;
+}
+
+export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContractResponse> & DetailSource) {
+  const { demoMode, getDemoDetail } = props;
   const contract = props.data;
   const [activeTab, setActiveTab] = useState<"tests" | "ast" | "journal">("tests");
   const [detail, setDetail] = useState<AgreementDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [expandedTrace, setExpandedTrace] = useState<Record<string, boolean>>({});
 
@@ -78,111 +86,16 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
     async function loadDetail() {
       if (!contract?.agreement_id) return;
       setLoading(true);
+      setError(null);
+      setDetail(null);
       try {
-        const fetched = await api.getAgreementDetail(contract.agreement_id);
+        const fetched = demoMode
+          ? getDemoDetail?.(contract.agreement_id) ?? null
+          : await api.getAgreementDetail(contract.agreement_id);
+        if (!fetched) throw new Error("Contract detail is unavailable.");
         if (active) setDetail(fetched);
-      } catch {
-        // Fallback to demo generator for offline / demo mode
-        const demoStore = new DemoStore(false);
-        const demoDetail = demoStore.getDetail(contract.agreement_id);
-        if (active) {
-          if (demoDetail) {
-            setDetail({ ...demoDetail, ...contract });
-          } else {
-            // Synthetic detail from contract properties
-            const isVoid = contract.fsm_state.includes("VOID");
-            setDetail({
-              ...contract,
-              test_assertions: isVoid
-                ? [
-                    {
-                      name: "test_ast_security_perimeter_isolation",
-                      status: "FAILED",
-                      duration_ms: 0.3,
-                      error_message: "SecurityHardVetoError: Prohibited network call detected [socket.connect]. Sandbox aborted.",
-                    },
-                  ]
-                : [
-                    { name: "test_01_initial_allow_within_capacity", status: "PASSED", duration_ms: 0.9 },
-                    { name: "test_02_capacity_exhaustion", status: "PASSED", duration_ms: 1.1 },
-                    { name: "test_03_client_isolation", status: "PASSED", duration_ms: 1.4 },
-                    { name: "test_04_refill_replenishes_tokens", status: "PASSED", duration_ms: 122.3 },
-                    { name: "test_05_variable_cost_deduction", status: "PASSED", duration_ms: 0.8 },
-                    { name: "test_06_excessive_cost_rejected_without_deduction", status: "PASSED", duration_ms: 0.7 },
-                    { name: "test_07_reset_single_client", status: "PASSED", duration_ms: 0.9 },
-                    { name: "test_08_reset_all_clients", status: "PASSED", duration_ms: 1.0 },
-                    { name: "test_09_get_remaining_accuracy", status: "PASSED", duration_ms: 0.8 },
-                    { name: "test_10_burst_capacity_ceiling", status: "PASSED", duration_ms: 81.5 },
-                  ],
-              ast_security_audit: isVoid
-                ? {
-                    is_clean: false,
-                    score: 0.0,
-                    scanned_imports: ["socket", "subprocess", "time"],
-                    blocked_calls: ["socket.socket", "socket.connect"],
-                    nodes_count: 38,
-                    flagged_reasons: ["Prohibited module 'socket' detected in AST import table"],
-                  }
-                : {
-                    is_clean: true,
-                    score: 1.0,
-                    scanned_imports: ["time", "typing"],
-                    blocked_calls: [],
-                    nodes_count: 54,
-                    flagged_reasons: [],
-                  },
-              ledger_journal: [
-                {
-                  debit_account: "paypal_escrow_hold",
-                  credit_account: "buyer_vault",
-                  amount_micros: contract.budget_micros || 15_000_000,
-                  amount_usd: `$${microsToUsd(contract.budget_micros || 15_000_000)}`,
-                  memo: "PayPal authorization hold locked for task escrow",
-                  created_at: contract.created_at,
-                },
-                ...(isVoid
-                  ? [
-                      {
-                        debit_account: "buyer_vault",
-                        credit_account: "paypal_escrow_hold",
-                        amount_micros: contract.budget_micros || 15_000_000,
-                        amount_usd: `$${microsToUsd(contract.budget_micros || 15_000_000)}`,
-                        memo: "Authorization voided: AST security hard veto - 100% refunded to buyer",
-                        created_at: contract.updated_at,
-                      },
-                    ]
-                  : [
-                      {
-                        debit_account: "worker_payable",
-                        credit_account: "paypal_escrow_hold",
-                        amount_micros: 14_450_000,
-                        amount_usd: "$14.45",
-                        memo: "Net worker deliverable settlement payout",
-                        created_at: contract.updated_at,
-                      },
-                      {
-                        debit_account: "platform_fee_revenue",
-                        credit_account: "paypal_escrow_hold",
-                        amount_micros: 300_000,
-                        amount_usd: "$0.30",
-                        memo: "AegisPay protocol clearing fee (2.0%)",
-                        created_at: contract.updated_at,
-                      },
-                      {
-                        debit_account: "paypal_rail_expense",
-                        credit_account: "paypal_escrow_hold",
-                        amount_micros: 250_000,
-                        amount_usd: "$0.25",
-                        memo: "PayPal Payouts API rail batch fee",
-                        created_at: contract.updated_at,
-                      },
-                    ]),
-              ],
-              merkle_root: "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
-              hash_chain_head: "0x489b039478f4ac9b291a27e7f9189b8214df7c94b2a3c7e0b51f08e4d29381ea",
-            });
-          }
-        }
+      } catch (err) {
+        if (active) setError((err as Error).message);
       } finally {
         if (active) setLoading(false);
       }
@@ -191,7 +104,7 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
     return () => {
       active = false;
     };
-  }, [contract]);
+  }, [contract, demoMode, getDemoDetail, reload]);
 
   const copyToClipboard = (text: string, key: string) => {
     if (navigator?.clipboard) {
@@ -205,8 +118,8 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
     setExpandedTrace((prev) => ({ ...prev, [testName]: !prev[testName] }));
   };
 
-  const merkleRoot = detail?.merkle_root || "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069";
-  const hashChainHead = detail?.hash_chain_head || "0x489b039478f4ac9b291a27e7f9189b8214df7c94b2a3c7e0b51f08e4d29381ea";
+  const merkleRoot = detail?.merkle_root || "Unavailable";
+  const hashChainHead = detail?.hash_chain_head || "Unavailable";
 
   const passedTestsCount = detail?.test_assertions?.filter((t) => t.status.toUpperCase().includes("PASS")).length ?? 0;
   const totalTestsCount = detail?.test_assertions?.length ?? 0;
@@ -257,7 +170,7 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
               className="rounded bg-cyan-950/80 border border-cyan-500/40 px-2 py-0.5 font-mono text-[10px] text-cyan-300 cursor-help"
               title="Cryptographic receipt proving sandbox outputs and financial journals were not altered."
             >
-              7-Leaf Merkle Verified
+              {demoMode ? "Demo proof" : detail?.merkle_root ? "Merkle receipt" : "Proof unavailable"}
             </span>
           </div>
           <span className="text-[10px] text-slate-400 italic">
@@ -371,6 +284,11 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
           <div className="flex items-center justify-center h-full text-slate-400 gap-2">
             <span className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
             Loading sub-view data...
+          </div>
+        ) : error ? (
+          <div role="alert" className="text-amber-300">
+            Could not load contract detail: {error}
+            <button onClick={() => setReload((value) => value + 1)} className="ml-3 underline">Retry</button>
           </div>
         ) : activeTab === "tests" ? (
           /* TAB 1: TEST SUITE MATRIX */
@@ -599,14 +517,17 @@ export function MasterDetailSubView(props: IDetailCellRendererParams<SlaContract
 // Master Grid Main Component
 // ----------------------------------------------------------------------------
 
-interface Props {
+const EMPTY_ROWS: SlaContractResponse[] = [];
+
+interface Props extends DetailSource {
   contracts: SlaContractResponse[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRefresh?: () => void;
+  connection: Connection;
 }
 
-export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRefresh }: Props) {
+export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRefresh, connection, demoMode, getDemoDetail }: Props) {
   const apiRef = useRef<GridApi<SlaContractResponse> | null>(null);
   const known = useRef<Map<string, string>>(new Map());
   const [ready, setReady] = useState(false);
@@ -681,46 +602,41 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
     }
   }, [contracts.length]);
 
-  // Real-time WebSocket connection to /api/v1/ws/ledger with fallback to /api/v1/ws/dashboard
+  // Events invalidate the HTTP snapshot; partial event payloads must not replace full rows.
   const { status: wsStatus } = useLedgerWebSocket({
-    onContractUpdate: (updatedRow) => {
-      const api = apiRef.current;
-      if (!api || !ready) return;
-      // Apply delta updates with 60fps flash
-      api.applyTransactionAsync({ update: [updatedRow as SlaContractResponse] });
-      api.hideOverlay();
-      onRefresh?.();
-    },
-    onSnapshot: () => {
-      apiRef.current?.hideOverlay();
-      onRefresh?.();
-    },
-  });
+    onContractUpdate: () => onRefresh?.(),
+    onSnapshot: () => onRefresh?.(),
+    onLedgerTransaction: () => onRefresh?.(),
+  }, !demoMode);
 
-  // Push row diffs through applyTransactionAsync so changed cells flash
+  // Apply the complete snapshot, including removals, before synchronizing selection.
   useEffect(() => {
     const api = apiRef.current;
     if (!ready || !api) return;
     const add: SlaContractResponse[] = [];
     const update: SlaContractResponse[] = [];
+    const remove: SlaContractResponse[] = [];
+    const ids = new Set(contracts.map((c) => c.agreement_id));
+    for (const id of Array.from(known.current.keys())) {
+      if (!ids.has(id)) {
+        const row = api.getRowNode(id)?.data;
+        if (row) remove.push(row);
+        known.current.delete(id);
+      }
+    }
 
     for (const c of contracts) {
-      const sig =
-        c.updated_at +
-        c.fsm_state +
-        (c.verification_score ?? "") +
-        (c.paypal_capture_id ?? "") +
-        (c.paypal_payout_batch_id ?? "");
+      const sig = JSON.stringify(c);
       const prev = known.current.get(c.agreement_id);
       if (prev === undefined) add.push(c);
       else if (prev !== sig) update.push(c);
       known.current.set(c.agreement_id, sig);
     }
 
-    if (add.length || update.length) {
-      api.applyTransactionAsync({ add, update });
-      api.hideOverlay();
-    } else if (contracts.length === 0) {
+    if (add.length || update.length || remove.length) {
+      api.applyTransaction({ add, update, remove });
+    }
+    if (contracts.length === 0) {
       api.showNoRowsOverlay();
     } else {
       api.hideOverlay();
@@ -729,7 +645,7 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
 
   useEffect(() => {
     const api = apiRef.current;
-    if (!ready || !api || !selectedId) return;
+    if (!ready || !api) return;
     api.forEachNode((n) => n.setSelected(n.data?.agreement_id === selectedId));
   }, [selectedId, ready, contracts]);
 
@@ -762,13 +678,15 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
         <div className="flex items-center gap-1.5 ml-2">
           <span
             className={`w-2 h-2 rounded-full ${
-              wsStatus === "connected"
+              (demoMode || connection === "online")
                 ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
                 : "bg-amber-400 animate-pulse"
             }`}
           />
           <span className="text-[11px] font-mono text-slate-400">
-            {wsStatus === "connected" ? "Live WS (60fps)" : "Reconnecting WS..."}
+            {demoMode ? "Demo data (offline)"
+              : connection === "online" ? (wsStatus === "connected" ? "Live WebSocket" : "Live polling (3s)")
+              : connection === "connecting" ? "Connecting to backend..." : "API offline · retrying"}
           </span>
         </div>
 
@@ -782,12 +700,14 @@ export default function EscrowLedgerGrid({ contracts, selectedId, onSelect, onRe
 
       <div className="ag-theme-quartz-dark" style={{ height: 480, width: "100%" }}>
         <AgGridReact<SlaContractResponse>
+          rowData={EMPTY_ROWS}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           getRowId={(p) => p.data.agreement_id}
           rowSelection="single"
           masterDetail={true}
           detailCellRenderer={MasterDetailSubView}
+          detailCellRendererParams={{ demoMode, getDemoDetail }}
           detailRowHeight={420}
           onGridReady={onGridReady}
           onRowClicked={(e: RowClickedEvent<SlaContractResponse>) => {

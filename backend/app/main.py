@@ -11,7 +11,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 from pathlib import Path
 import time
 import uuid
@@ -259,7 +258,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        should_seed = not os.environ.get("PYTEST_CURRENT_TEST") or getattr(cfg, "AUTO_SEED_ON_STARTUP", False)
+        should_seed = (
+            cfg.AUTO_SEED_ON_STARTUP
+            and cfg.PAYPAL_MODE == "mock"
+            and getattr(app.state.orchestrator.engine, "is_mock", False)
+        )
         if should_seed:
             try:
                 count_res = app.state.repo.db.query("SELECT COUNT(*) FROM contracts")
@@ -408,6 +411,17 @@ def create_app(
             return contract_detail(await orch.retry_payout(agreement_id))
         except (NotFoundError, fsm.FsmError, UpstreamError) as exc:
             raise _handle(exc)
+
+    @api.post("/demo/scenarios/all", tags=["Contracts & Escrow"], response_model=ContractListResponse)
+    async def seed_demo() -> Dict[str, Any]:
+        """Create missing canonical examples without charging PayPal or duplicating existing examples."""
+        if cfg.PAYPAL_MODE != "mock" or not getattr(paypal, "is_mock", False):
+            raise HTTPException(400, "Demo scenarios require PAYPAL_MODE=mock")
+        try:
+            contracts = await seed_canonical_scenarios(orch)
+        except (fsm.FsmError, UpstreamError) as exc:
+            raise _handle(exc)
+        return {"contracts": [contract_detail(c) for c in contracts], "count": len(contracts)}
 
     @api.post("/demo/scenarios/{name}", tags=["Contracts & Escrow"], response_model=DemoScenarioResponse)
     async def run_demo(name: str, payout_outcome: str = "succeeded") -> Dict[str, Any]:
