@@ -380,7 +380,10 @@ def test_auto_seed_on_empty_db_lifespan(tmp_path):
         res = client.get(f"{P}/contracts").json()
         assert res["count"] == 3
         states = {c["fsm_state"] for c in res["contracts"]}
-        assert states == {"SETTLED_COMPLETE", "PARTIAL_CAPTURED", "ESCROW_VOIDED_REFUNDED"}
+        # Every seeded capture is paid out, like a clicked scenario; none is left for the sweeper.
+        assert sorted(c["fsm_state"] for c in res["contracts"]) == [
+            "ESCROW_VOIDED_REFUNDED", "SETTLED_COMPLETE", "SETTLED_COMPLETE"]
+        assert client.get(f"{P}/sweeper/status").json()["unpaid_captures"] == []
         scores = {round(c["verification_score"], 2) for c in res["contracts"]}
         assert scores == {0.98, 0.74, 0.00}
         led = client.get(f"{P}/ledger").json()

@@ -807,7 +807,7 @@ async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.Contr
     """
     Seeds the database with the 3 canonical demo scenario contracts:
     1. Scenario 1: Clean Pass (S = 0.98, SETTLED_COMPLETE, full capture, double-entry payout journal entries).
-    2. Scenario 2: Partial Defect (S = 0.74, PARTIAL_CAPTURED, pro-rata partial capture + hold release).
+    2. Scenario 2: Partial Defect (S = 0.74, SETTLED_COMPLETE, pro-rata partial capture + hold release, worker paid).
     3. Scenario 3: Malicious Injection (S = 0.00, ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged).
     """
     if not orch.settings.is_mock or not getattr(orch.engine, "is_mock", False):
@@ -819,7 +819,7 @@ async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.Contr
         contracts = []
         for name, score, dispatch in (
             ("CLEAN_PASS", 0.92, True),
-            ("PARTIAL_DEFECT", 0.56, False),
+            ("PARTIAL_DEFECT", 0.56, True),
             ("MALICIOUS_INJECTION", None, True),
         ):
             agreement_id = f"agr_canonical_{name.lower()}"
