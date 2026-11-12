@@ -106,8 +106,8 @@ export default function Dashboard() {
     }
   }
 
+  // Report a veto only once the backend has returned one, not while a scenario is still running.
   const isAstHardVeto =
-    a.busy === "MALICIOUS_INJECTION" ||
     (Boolean(a.selected) &&
       (a.selected?.fsm_state === "ESCROW_VOIDED_REFUNDED" ||
         report?.settlement?.decision === "VOID_AUTHORIZATION" ||
