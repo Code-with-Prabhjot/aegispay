@@ -247,13 +247,19 @@ export default function Dashboard() {
                   {showAiHud ? "Hide AI HUD ▲" : "Show AI HUD ▼"}
                 </button>
               </div>
-              {showAiHud && (
+              {showAiHud && (!a.demoMode && consensusGemini === undefined ? (
+                <div className="panel text-xs font-mono text-slate-400" role="status">
+                  {a.selected
+                    ? "No Gemini + Claude scores were recorded for this contract. Dual-model scoring runs only when both model API keys are configured on the backend."
+                    : "Select a contract to see its model scores."}
+                </div>
+              ) : (
                 <DualModelConsensusGauge
                   geminiScore={consensusGemini}
                   claudeScore={consensusClaude}
                   allowInteractiveSimulation={true}
                 />
-              )}
+              ))}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-3 mt-6">
