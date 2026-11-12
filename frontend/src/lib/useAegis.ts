@@ -20,6 +20,8 @@ export function useAegis() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ScenarioName | "SEED" | null>(null);
   const demo = useRef<DemoStore | null>(null);
+  const selectedRef = useRef<SlaContractResponse | null>(null);
+  selectedRef.current = selected;
   const generation = useRef(0);
   const inFlight = useRef<{ controller: AbortController; task: Promise<void> } | null>(null);
 
@@ -82,7 +84,13 @@ export function useAegis() {
 
   useEffect(() => {
     const fromList = contracts.find((c) => c.agreement_id === selectedId) ?? null;
-    setSelected(fromList);
+    // List rows omit the report and transition history. Keep the full record already on screen
+    // and lay the fresher list fields over it, so the detail panel does not blank on every poll.
+    const prev = selectedRef.current;
+    const keepDetail = Boolean(fromList && prev?.history && prev.agreement_id === fromList.agreement_id);
+    setSelected(fromList && keepDetail ? { ...prev, ...fromList } : fromList);
+    // The full record is still current, so there is nothing new to fetch.
+    if (keepDetail && prev?.updated_at === fromList?.updated_at && prev?.fsm_state === fromList?.fsm_state) return;
     if (!selectedId || !fromList || demoMode || connection !== "online" || fromList.history) return;
     let active = true;
     const controller = new AbortController();

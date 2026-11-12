@@ -47,6 +47,7 @@ from backend.app.schemas import (
     SweeperRunResponse,
     SweeperStatusResponse,
     TestAssertionItem,
+    VaultRecordResponse,
     VaultResetResponse,
     VaultSetupTokenRequest,
     VaultSetupTokenResponse,
@@ -260,7 +261,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         should_seed = (
             cfg.AUTO_SEED_ON_STARTUP
-            and cfg.PAYPAL_MODE == "mock"
+            and cfg.is_mock
             and getattr(app.state.orchestrator.engine, "is_mock", False)
         )
         if should_seed:
@@ -415,7 +416,7 @@ def create_app(
     @api.post("/demo/scenarios/all", tags=["Contracts & Escrow"], response_model=ContractListResponse)
     async def seed_demo() -> Dict[str, Any]:
         """Create missing canonical examples without charging PayPal or duplicating existing examples."""
-        if cfg.PAYPAL_MODE != "mock" or not getattr(paypal, "is_mock", False):
+        if not cfg.is_mock or not getattr(paypal, "is_mock", False):
             raise HTTPException(400, "Demo scenarios require PAYPAL_MODE=mock")
         try:
             contracts = await seed_canonical_scenarios(orch)
@@ -712,7 +713,7 @@ def create_app(
     async def get_vaults_velocity_alias(buyer_did: str) -> Dict[str, Any]:
         return await get_vault_velocity(buyer_did)
 
-    @api.post("/vaults", status_code=201, tags=["Vault & Circuit Breaker"], response_model=VaultVelocityModel)
+    @api.post("/vaults", status_code=201, tags=["Vault & Circuit Breaker"], response_model=VaultRecordResponse)
     async def create_or_update_vault(model: VaultVelocityModel) -> Dict[str, Any]:
         # Registering a vault is an operator action; overwriting one would zero its spend counter
         # and bypass the velocity limits, so that is demo-only (use /reset for the breaker).
@@ -731,7 +732,7 @@ def create_app(
         )
         return record.to_dict()
 
-    @api.get("/vaults/{vault_id}", tags=["Vault & Circuit Breaker"], response_model=VaultVelocityModel)
+    @api.get("/vaults/{vault_id}", tags=["Vault & Circuit Breaker"], response_model=VaultRecordResponse)
     async def get_vault_status(vault_id: str) -> Dict[str, Any]:
         vault = repository.get_vault(vault_id)
         if vault is None:

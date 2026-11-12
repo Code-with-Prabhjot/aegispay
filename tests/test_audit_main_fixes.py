@@ -380,9 +380,15 @@ def test_auto_seed_on_empty_db_lifespan(tmp_path):
         res = client.get(f"{P}/contracts").json()
         assert res["count"] == 3
         states = {c["fsm_state"] for c in res["contracts"]}
-        assert states == {"SETTLED_COMPLETE", "PARTIAL_CAPTURED", "ESCROW_VOIDED_REFUNDED"}
-        scores = {round(c["verification_score"], 2) for c in res["contracts"]}
-        assert scores == {0.98, 0.74, 0.00}
+        # Every seeded capture is paid out, like a clicked scenario; none is left for the sweeper.
+        assert sorted(c["fsm_state"] for c in res["contracts"]) == [
+            "ESCROW_VOIDED_REFUNDED", "SETTLED_COMPLETE", "SETTLED_COMPLETE"]
+        assert client.get(f"{P}/sweeper/status").json()["unpaid_captures"] == []
+        # Seeded rows score exactly like the same scenario run from the dashboard.
+        seeded = {c["agreement_id"]: c["verification_score"] for c in res["contracts"]}
+        for name in ("clean_pass", "partial_defect", "malicious_injection"):
+            clicked = client.post(f"{P}/demo/scenarios/{name}").json()["verification_score"]
+            assert seeded[f"agr_canonical_{name}"] == clicked
         led = client.get(f"{P}/ledger").json()
         assert led["balanced"] is True
 
@@ -413,6 +419,14 @@ def test_startup_seed_setting_is_honored_outside_pytest(tmp_path, monkeypatch):
     client, _ = app_client(tmp_path, AUTO_SEED_ON_STARTUP=False)
     with client:
         assert client.get(f"{P}/contracts").json()["count"] == 0
+
+
+@pytest.mark.parametrize("mode", ["Mock", " mock "])
+def test_startup_seeds_when_mock_mode_is_not_lowercase(tmp_path, mode):
+    # The settings validator accepts any case and padding, so seeding must too.
+    client, _ = app_client(tmp_path, PAYPAL_MODE=mode, AUTO_SEED_ON_STARTUP=True)
+    with client:
+        assert client.get(f"{P}/contracts").json()["count"] == 3
 
 
 @pytest.mark.parametrize("mode", ["sandbox", "live"])
@@ -466,3 +480,42 @@ async def test_concurrent_seeding_does_not_duplicate_ledger_entries(tmp_path):
     finally:
         await orch.engine.close()
         app.state.repo.db.close()
+
+
+def test_vault_responses_keep_the_status_field(tmp_path):
+    # The dashboard's vault modal reads `status`; the response model must not strip it.
+    client, _ = app_client(tmp_path)
+    with client:
+        created = client.post(f"{P}/vaults", json={"vault_id": "v_status", "buyer_did": "did:key:zStatus"})
+        assert created.status_code == 201 and created.json()["status"] == "ACTIVE"
+        client.post(f"{P}/vaults/v_status/freeze")
+        assert client.get(f"{P}/vaults/v_status").json()["status"] == "VAULT_LOCKED_CIRCUIT_BREAKER"
+
+
+def test_ledger_entries_keep_the_amount_usd_field(tmp_path):
+    client, _ = app_client(tmp_path)
+    with client:
+        client.post(f"{P}/demo/scenarios/clean_pass")
+        entries = client.get(f"{P}/ledger").json()["entries"]
+        assert entries and all(e["amount_usd"].startswith("$") for e in entries)
+
+
+@pytest.mark.parametrize("method", ["evaluate", "arbitrate"])
+def test_skipped_judge_does_not_report_an_earlier_runs_model_scores(method):
+    from backend.app.services.arbitration_engine import ArbitrationArbiter
+
+    class StaleConsensusJudge:
+        def __init__(self):
+            # Left over from scoring an earlier contract.
+            self.last_consensus_audit = {"gemini_score": 0.91, "claude_score": 0.42,
+                                         "divergence": 0.49, "divergence_penalty_applied": True}
+
+        def judge(self, source_code):
+            raise AssertionError("judge must be skipped when semantic_score is given")
+
+    code = "def add(a, b):\n    return a + b\n"
+    tests = "from deliverable import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    report = getattr(ArbitrationArbiter(), method)(
+        "agr_stale", code, tests, semantic_score=0.8, consensus_arbiter=StaleConsensusJudge())
+    assert report.gemini_score is None and report.claude_score is None
+    assert report.divergence is None and report.divergence_penalty_applied is False

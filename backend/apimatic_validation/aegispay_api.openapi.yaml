@@ -503,7 +503,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultVelocityModel'
+                $ref: '#/components/schemas/VaultRecordResponse'
         '422':
           description: Validation Error
           content:
@@ -533,7 +533,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VaultVelocityModel'
+                $ref: '#/components/schemas/VaultRecordResponse'
         '422':
           description: Validation Error
           content:
@@ -1436,59 +1436,6 @@ components:
       - created_at
       - updated_at
       title: DemoScenarioResponse
-    DoubleEntryLedgerEntry:
-      properties:
-        entry_id:
-          type: string
-          title: Entry Id
-          description: Unique UUID identifier for this ledger journal entry
-        debit_account:
-          type: string
-          title: Debit Account
-          description: Account receiving the debit (asset increase or liability/equity
-            decrease)
-        credit_account:
-          type: string
-          title: Credit Account
-          description: Account receiving the credit (liability/equity increase or
-            asset decrease)
-        amount_micros:
-          type: integer
-          exclusiveMinimum: 0.0
-          title: Amount Micros
-          description: Transaction amount in integer micro-dollars. Must be strictly
-            positive.
-        reference_id:
-          type: string
-          title: Reference Id
-          description: External reference identifier (e.g. agreement_id, capture_id,
-            payout_batch_id)
-        currency:
-          type: string
-          title: Currency
-          description: ISO 4217 Currency code (default 'USD')
-          default: USD
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-          description: UTC timestamp when this ledger entry was created
-        description:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Description
-          description: Human-readable ledger memo describing the financial transfer
-      type: object
-      required:
-      - debit_account
-      - credit_account
-      - amount_micros
-      - reference_id
-      title: DoubleEntryLedgerEntry
-      description: 'Immutable journal entry for the double-entry accounting ledger.
-
-        Every transaction strictly transfers funds between a debit and credit account.'
     FsmState:
       type: string
       enum:
@@ -1627,7 +1574,7 @@ components:
       properties:
         entries:
           items:
-            $ref: '#/components/schemas/DoubleEntryLedgerEntry'
+            $ref: '#/components/schemas/LedgerEntryRecord'
           type: array
           title: Entries
           description: Double-entry journal records
@@ -1711,6 +1658,61 @@ components:
       - balances
       - invariant
       title: LedgerBalanceResponse
+    LedgerEntryRecord:
+      properties:
+        entry_id:
+          type: string
+          title: Entry Id
+          description: Unique UUID identifier for this ledger journal entry
+        debit_account:
+          type: string
+          title: Debit Account
+          description: Account receiving the debit (asset increase or liability/equity
+            decrease)
+        credit_account:
+          type: string
+          title: Credit Account
+          description: Account receiving the credit (liability/equity increase or
+            asset decrease)
+        amount_micros:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Amount Micros
+          description: Transaction amount in integer micro-dollars. Must be strictly
+            positive.
+        reference_id:
+          type: string
+          title: Reference Id
+          description: External reference identifier (e.g. agreement_id, capture_id,
+            payout_batch_id)
+        currency:
+          type: string
+          title: Currency
+          description: ISO 4217 Currency code (default 'USD')
+          default: USD
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: UTC timestamp when this ledger entry was created
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+          description: Human-readable ledger memo describing the financial transfer
+        amount_usd:
+          type: string
+          title: Amount Usd
+          description: Formatted USD amount, e.g. $14.45
+      type: object
+      required:
+      - debit_account
+      - credit_account
+      - amount_micros
+      - reference_id
+      - amount_usd
+      title: LedgerEntryRecord
     LedgerJournalLeg:
       properties:
         debit_account:
@@ -2311,6 +2313,56 @@ components:
       - msg
       - type
       title: ValidationError
+    VaultRecordResponse:
+      properties:
+        vault_id:
+          type: string
+          title: Vault Id
+          description: PayPal Vault payment token / setup token ID
+        buyer_did:
+          type: string
+          title: Buyer Did
+          description: Ed25519 DID of the buyer agent
+        max_amount_per_task_micros:
+          type: integer
+          title: Max Amount Per Task Micros
+          description: Max allowed per task in micros
+          default: 25000000
+        max_daily_budget_micros:
+          type: integer
+          title: Max Daily Budget Micros
+          description: Max allowed daily budget in micros
+          default: 100000000
+        current_daily_spent_micros:
+          type: integer
+          title: Current Daily Spent Micros
+          description: Running sum of captured micros in 24h rolling window
+          default: 0
+        window_reset_timestamp:
+          type: integer
+          title: Window Reset Timestamp
+          description: Epoch timestamp when 24h budget window resets
+          default: 0
+        consecutive_void_count:
+          type: integer
+          title: Consecutive Void Count
+          description: Consecutive AST voids count
+          default: 0
+        is_frozen:
+          type: integer
+          title: Is Frozen
+          description: 0 = active, 1 = frozen by circuit breaker
+          default: 0
+        status:
+          type: string
+          title: Status
+          description: ACTIVE, or VAULT_LOCKED_CIRCUIT_BREAKER when frozen
+      type: object
+      required:
+      - vault_id
+      - buyer_did
+      - status
+      title: VaultRecordResponse
     VaultResetResponse:
       properties:
         status:

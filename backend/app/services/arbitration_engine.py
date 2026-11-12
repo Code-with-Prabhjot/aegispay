@@ -868,6 +868,7 @@ class ArbitrationArbiter:
         divergence: Optional[float] = None
         divergence_penalty_applied: bool = False
         arb = consensus_arbiter or getattr(self, "consensus_arbiter", None) or self.judge
+        judged = None  # set only when the judge actually scores this submission
         if semantic_score is not None:
             s_semantic = semantic_score
         else:
@@ -882,7 +883,12 @@ class ArbitrationArbiter:
                 divergence = getattr(judged, "divergence", None) if not isinstance(judged, dict) else judged.get("divergence")
                 divergence_penalty_applied = getattr(judged, "divergence_penalty_applied", False) if not isinstance(judged, dict) else judged.get("divergence_penalty_applied", False)
 
-        audit = getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+        # The arbiter keeps its last audit between calls; read it only if it judged this
+        # submission, or a skipped judge would report an earlier contract's model scores.
+        audit = (
+            getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+            if judged is not None else None
+        )
         if audit and isinstance(audit, dict):
             if gemini_score is None:
                 gemini_score = audit.get("gemini_score")
@@ -1036,6 +1042,7 @@ class ArbitrationArbiter:
 
             # 3. Dual-Model Consensus Semantic Grader
             arb = consensus_arbiter or getattr(self, "consensus_arbiter", None) or self.judge
+            judged = None  # set only when the judge actually scores this submission
             if semantic_score is not None:
                 s_semantic = max(0.0, min(1.0, float(semantic_score)))
             else:
@@ -1052,7 +1059,12 @@ class ArbitrationArbiter:
                     divergence = getattr(judged, "divergence", None) if not isinstance(judged, dict) else judged.get("divergence")
                     divergence_penalty_applied = getattr(judged, "divergence_penalty_applied", False) if not isinstance(judged, dict) else judged.get("divergence_penalty_applied", False)
 
-            audit = getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+            # The arbiter keeps its last audit between calls; read it only if it judged this
+            # submission, or a skipped judge would report an earlier contract's model scores.
+            audit = (
+                getattr(arb, "last_consensus_audit", None) or getattr(self.judge, "last_consensus_audit", None)
+                if judged is not None else None
+            )
             if audit and isinstance(audit, dict):
                 if gemini_score is None:
                     gemini_score = audit.get("gemini_score")
