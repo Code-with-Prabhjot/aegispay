@@ -384,8 +384,11 @@ def test_auto_seed_on_empty_db_lifespan(tmp_path):
         assert sorted(c["fsm_state"] for c in res["contracts"]) == [
             "ESCROW_VOIDED_REFUNDED", "SETTLED_COMPLETE", "SETTLED_COMPLETE"]
         assert client.get(f"{P}/sweeper/status").json()["unpaid_captures"] == []
-        scores = {round(c["verification_score"], 2) for c in res["contracts"]}
-        assert scores == {0.98, 0.74, 0.00}
+        # Seeded rows score exactly like the same scenario run from the dashboard.
+        seeded = {c["agreement_id"]: c["verification_score"] for c in res["contracts"]}
+        for name in ("clean_pass", "partial_defect", "malicious_injection"):
+            clicked = client.post(f"{P}/demo/scenarios/{name}").json()["verification_score"]
+            assert seeded[f"agr_canonical_{name}"] == clicked
         led = client.get(f"{P}/ledger").json()
         assert led["balanced"] is True
 

@@ -805,10 +805,11 @@ class EscrowOrchestrator:
 
 async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.ContractRecord]:
     """
-    Seeds the database with the 3 canonical demo scenario contracts:
-    1. Scenario 1: Clean Pass (S = 0.98, SETTLED_COMPLETE, full capture, double-entry payout journal entries).
-    2. Scenario 2: Partial Defect (S = 0.74, SETTLED_COMPLETE, pro-rata partial capture + hold release, worker paid).
-    3. Scenario 3: Malicious Injection (S = 0.00, ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged).
+    Seeds the database with the 3 canonical demo scenario contracts, run exactly as the dashboard's
+    scenario buttons run them (same preset scores, payout dispatched):
+    1. Clean Pass: SETTLED_COMPLETE, full capture, double-entry payout journal entries.
+    2. Partial Defect: SETTLED_COMPLETE, pro-rata partial capture + hold release, worker paid.
+    3. Malicious Injection: ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged.
     """
     if not orch.settings.is_mock or not getattr(orch.engine, "is_mock", False):
         raise PolicyViolationError("Demo seeding requires PAYPAL_MODE=mock")
@@ -817,19 +818,12 @@ async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.Contr
     # Serialize repeated seed requests across the entire three-scenario operation.
     async with orch._seed_lock:
         contracts = []
-        for name, score, dispatch in (
-            ("CLEAN_PASS", 0.92, True),
-            ("PARTIAL_DEFECT", 0.56, True),
-            ("MALICIOUS_INJECTION", None, True),
-        ):
+        for name in ("CLEAN_PASS", "PARTIAL_DEFECT", "MALICIOUS_INJECTION"):
             agreement_id = f"agr_canonical_{name.lower()}"
             try:
                 contract = orch.get(agreement_id)
             except NotFoundError:
-                contract = await orch.run_scenario(
-                    name, agreement_id=agreement_id,
-                    semantic_score=score, dispatch_payout=dispatch,
-                )
+                contract = await orch.run_scenario(name, agreement_id=agreement_id)
             contracts.append(contract)
         return contracts
 
