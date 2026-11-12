@@ -415,6 +415,14 @@ def test_startup_seed_setting_is_honored_outside_pytest(tmp_path, monkeypatch):
         assert client.get(f"{P}/contracts").json()["count"] == 0
 
 
+@pytest.mark.parametrize("mode", ["Mock", " mock "])
+def test_startup_seeds_when_mock_mode_is_not_lowercase(tmp_path, mode):
+    # The settings validator accepts any case and padding, so seeding must too.
+    client, _ = app_client(tmp_path, PAYPAL_MODE=mode, AUTO_SEED_ON_STARTUP=True)
+    with client:
+        assert client.get(f"{P}/contracts").json()["count"] == 3
+
+
 @pytest.mark.parametrize("mode", ["sandbox", "live"])
 def test_startup_never_seeds_non_mock_payment_modes(tmp_path, mode, monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)

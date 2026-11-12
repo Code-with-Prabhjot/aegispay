@@ -810,7 +810,7 @@ async def seed_canonical_scenarios(orch: "EscrowOrchestrator") -> List[fsm.Contr
     2. Scenario 2: Partial Defect (S = 0.74, PARTIAL_CAPTURED, pro-rata partial capture + hold release).
     3. Scenario 3: Malicious Injection (S = 0.00, ESCROW_VOIDED_REFUNDED, AST hard veto triggered, $0.00 charged).
     """
-    if orch.settings.PAYPAL_MODE != "mock" or not getattr(orch.engine, "is_mock", False):
+    if not orch.settings.is_mock or not getattr(orch.engine, "is_mock", False):
         raise PolicyViolationError("Demo seeding requires PAYPAL_MODE=mock")
 
     # Separate from the settlement lock: arbitration releases that lock while running tests.
