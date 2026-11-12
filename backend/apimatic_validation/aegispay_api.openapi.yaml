@@ -1436,59 +1436,6 @@ components:
       - created_at
       - updated_at
       title: DemoScenarioResponse
-    DoubleEntryLedgerEntry:
-      properties:
-        entry_id:
-          type: string
-          title: Entry Id
-          description: Unique UUID identifier for this ledger journal entry
-        debit_account:
-          type: string
-          title: Debit Account
-          description: Account receiving the debit (asset increase or liability/equity
-            decrease)
-        credit_account:
-          type: string
-          title: Credit Account
-          description: Account receiving the credit (liability/equity increase or
-            asset decrease)
-        amount_micros:
-          type: integer
-          exclusiveMinimum: 0.0
-          title: Amount Micros
-          description: Transaction amount in integer micro-dollars. Must be strictly
-            positive.
-        reference_id:
-          type: string
-          title: Reference Id
-          description: External reference identifier (e.g. agreement_id, capture_id,
-            payout_batch_id)
-        currency:
-          type: string
-          title: Currency
-          description: ISO 4217 Currency code (default 'USD')
-          default: USD
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-          description: UTC timestamp when this ledger entry was created
-        description:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Description
-          description: Human-readable ledger memo describing the financial transfer
-      type: object
-      required:
-      - debit_account
-      - credit_account
-      - amount_micros
-      - reference_id
-      title: DoubleEntryLedgerEntry
-      description: 'Immutable journal entry for the double-entry accounting ledger.
-
-        Every transaction strictly transfers funds between a debit and credit account.'
     FsmState:
       type: string
       enum:
@@ -1627,7 +1574,7 @@ components:
       properties:
         entries:
           items:
-            $ref: '#/components/schemas/DoubleEntryLedgerEntry'
+            $ref: '#/components/schemas/LedgerEntryRecord'
           type: array
           title: Entries
           description: Double-entry journal records
@@ -1711,6 +1658,61 @@ components:
       - balances
       - invariant
       title: LedgerBalanceResponse
+    LedgerEntryRecord:
+      properties:
+        entry_id:
+          type: string
+          title: Entry Id
+          description: Unique UUID identifier for this ledger journal entry
+        debit_account:
+          type: string
+          title: Debit Account
+          description: Account receiving the debit (asset increase or liability/equity
+            decrease)
+        credit_account:
+          type: string
+          title: Credit Account
+          description: Account receiving the credit (liability/equity increase or
+            asset decrease)
+        amount_micros:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Amount Micros
+          description: Transaction amount in integer micro-dollars. Must be strictly
+            positive.
+        reference_id:
+          type: string
+          title: Reference Id
+          description: External reference identifier (e.g. agreement_id, capture_id,
+            payout_batch_id)
+        currency:
+          type: string
+          title: Currency
+          description: ISO 4217 Currency code (default 'USD')
+          default: USD
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: UTC timestamp when this ledger entry was created
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+          description: Human-readable ledger memo describing the financial transfer
+        amount_usd:
+          type: string
+          title: Amount Usd
+          description: Formatted USD amount, e.g. $14.45
+      type: object
+      required:
+      - debit_account
+      - credit_account
+      - amount_micros
+      - reference_id
+      - amount_usd
+      title: LedgerEntryRecord
     LedgerJournalLeg:
       properties:
         debit_account:

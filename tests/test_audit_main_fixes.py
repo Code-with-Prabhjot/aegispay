@@ -490,3 +490,11 @@ def test_vault_responses_keep_the_status_field(tmp_path):
         assert created.status_code == 201 and created.json()["status"] == "ACTIVE"
         client.post(f"{P}/vaults/v_status/freeze")
         assert client.get(f"{P}/vaults/v_status").json()["status"] == "VAULT_LOCKED_CIRCUIT_BREAKER"
+
+
+def test_ledger_entries_keep_the_amount_usd_field(tmp_path):
+    client, _ = app_client(tmp_path)
+    with client:
+        client.post(f"{P}/demo/scenarios/clean_pass")
+        entries = client.get(f"{P}/ledger").json()["entries"]
+        assert entries and all(e["amount_usd"].startswith("$") for e in entries)
