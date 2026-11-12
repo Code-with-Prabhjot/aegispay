@@ -683,19 +683,19 @@ export default function CodeMutationStudio({
 
               {/* Dual-Model Arbiter Consensus Gauge */}
               <div className="mt-4">
-                <DualModelConsensusGauge
-                  geminiScore={
-                    executionResult.arbitration_report?.gemini_score ??
-                    executionResult.gemini_score ??
-                    executionResult.verification_score ??
-                    undefined
-                  }
-                  claudeScore={
-                    executionResult.arbitration_report?.claude_score ??
-                    executionResult.claude_score ??
-                    undefined
-                  }
-                />
+                {(() => {
+                  // Only real model scores belong here: the composite verification score is not
+                  // a Gemini score, and a missing score must not fall back to example values.
+                  const gemini = executionResult.arbitration_report?.gemini_score ?? executionResult.gemini_score ?? undefined;
+                  const claude = executionResult.arbitration_report?.claude_score ?? executionResult.claude_score ?? undefined;
+                  return gemini !== undefined && claude !== undefined ? (
+                    <DualModelConsensusGauge geminiScore={gemini} claudeScore={claude} allowInteractiveSimulation={false} />
+                  ) : (
+                    <p className="text-xs font-mono text-slate-400" role="status">
+                      No Gemini + Claude scores were recorded for this run. Dual-model scoring runs only when both model API keys are configured on the backend.
+                    </p>
+                  );
+                })()}
               </div>
             </div>
           )}
