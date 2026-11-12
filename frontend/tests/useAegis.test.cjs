@@ -188,3 +188,37 @@ test("disabled WebSockets discard pending tickets and late events", async (t) =>
   assert.equal(status, "disconnected");
   assert.equal(snapshots, 1, "superseded sockets must not publish live events");
 });
+
+test("polling keeps the selected contract's report and history on screen", async (t) => {
+  const row = { ...example, history: undefined, arbitration_report: undefined };
+  const detail = {
+    ...row,
+    arbitration_report: { composite_score: 0.98, ast_safe: true },
+    transitions: [{ from_state: null, to_state: "AGREEMENT_DRAFTED", created_at: "2026-11-11T00:00:00Z" }],
+  };
+  let detailFetches = 0;
+  const list = backend([row]);
+  const seen = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, init) => {
+    if (url.endsWith(`/contracts/${row.agreement_id}`)) { detailFetches += 1; return response(detail); }
+    return list(url, init);
+  };
+  let value;
+  let root;
+  function Harness() {
+    value = useAegis();
+    if (value.selected) seen.push(value.selected.arbitration_report ? "full" : "slim");
+    return null;
+  }
+  await act(async () => { root = create(React.createElement(Harness)); });
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  t.after(async () => { await act(async () => root.unmount()); global.fetch = originalFetch; });
+  assert.equal(seen.at(-1), "full");
+  const afterLoad = seen.length;
+  await act(async () => value.refresh());
+  await act(async () => value.refresh());
+  assert.ok(!seen.slice(afterLoad).includes("slim"), `selected blanked during a poll: ${seen.join(" ")}`);
+  assert.equal(value.selected.history.length, 1);
+  assert.equal(detailFetches, 1, "an unchanged contract should not be re-fetched on every poll");
+});
