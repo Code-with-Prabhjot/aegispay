@@ -498,3 +498,24 @@ def test_ledger_entries_keep_the_amount_usd_field(tmp_path):
         client.post(f"{P}/demo/scenarios/clean_pass")
         entries = client.get(f"{P}/ledger").json()["entries"]
         assert entries and all(e["amount_usd"].startswith("$") for e in entries)
+
+
+@pytest.mark.parametrize("method", ["evaluate", "arbitrate"])
+def test_skipped_judge_does_not_report_an_earlier_runs_model_scores(method):
+    from backend.app.services.arbitration_engine import ArbitrationArbiter
+
+    class StaleConsensusJudge:
+        def __init__(self):
+            # Left over from scoring an earlier contract.
+            self.last_consensus_audit = {"gemini_score": 0.91, "claude_score": 0.42,
+                                         "divergence": 0.49, "divergence_penalty_applied": True}
+
+        def judge(self, source_code):
+            raise AssertionError("judge must be skipped when semantic_score is given")
+
+    code = "def add(a, b):\n    return a + b\n"
+    tests = "from deliverable import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    report = getattr(ArbitrationArbiter(), method)(
+        "agr_stale", code, tests, semantic_score=0.8, consensus_arbiter=StaleConsensusJudge())
+    assert report.gemini_score is None and report.claude_score is None
+    assert report.divergence is None and report.divergence_penalty_applied is False
