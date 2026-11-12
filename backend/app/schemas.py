@@ -418,6 +418,10 @@ class DemoScenarioResponse(ContractDetailResponse):
     balances: Dict[str, int] = Field(default_factory=dict, description="Ledger account balances after scenario execution")
 
 
+class VaultRecordResponse(VaultVelocityModel):
+    status: str = Field(..., description="ACTIVE, or VAULT_LOCKED_CIRCUIT_BREAKER when frozen")
+
+
 class LedgerAuditResponse(BaseModel):
     entries: list[DoubleEntryLedgerEntry] = Field(..., description="Double-entry journal records")
     balances: Dict[str, int] = Field(..., description="Account balances map in micro-dollars")

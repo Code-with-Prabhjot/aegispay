@@ -480,3 +480,13 @@ async def test_concurrent_seeding_does_not_duplicate_ledger_entries(tmp_path):
     finally:
         await orch.engine.close()
         app.state.repo.db.close()
+
+
+def test_vault_responses_keep_the_status_field(tmp_path):
+    # The dashboard's vault modal reads `status`; the response model must not strip it.
+    client, _ = app_client(tmp_path)
+    with client:
+        created = client.post(f"{P}/vaults", json={"vault_id": "v_status", "buyer_did": "did:key:zStatus"})
+        assert created.status_code == 201 and created.json()["status"] == "ACTIVE"
+        client.post(f"{P}/vaults/v_status/freeze")
+        assert client.get(f"{P}/vaults/v_status").json()["status"] == "VAULT_LOCKED_CIRCUIT_BREAKER"
