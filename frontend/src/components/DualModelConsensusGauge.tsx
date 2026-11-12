@@ -37,8 +37,8 @@ const DEFAULT_CLAUDE_RUBRIC: RubricBreakdown = {
 export default function DualModelConsensusGauge({
   geminiScore: propGeminiScore,
   claudeScore: propClaudeScore,
-  geminiLatencyMs = 342,
-  claudeLatencyMs = 289,
+  geminiLatencyMs,
+  claudeLatencyMs,
   geminiRubric = DEFAULT_GEMINI_RUBRIC,
   claudeRubric = DEFAULT_CLAUDE_RUBRIC,
   className = "",
@@ -46,6 +46,9 @@ export default function DualModelConsensusGauge({
 }: DualModelConsensusGaugeProps) {
   // If simulation is enabled and no explicit props provided, allow user to test convergence vs divergence
   const [simMode, setSimMode] = useState<"consensus" | "divergent">("consensus");
+
+  // Without both real scores the gauge shows built-in example values, and must say so.
+  const isSimulated = propGeminiScore === undefined || propClaudeScore === undefined;
 
   const sA =
     propGeminiScore !== undefined
@@ -91,6 +94,14 @@ export default function DualModelConsensusGauge({
               <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/40 text-cyan-300">
                 Adversarial LLM Consensus
               </span>
+              {isSimulated && (
+                <span
+                  className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-950 border border-amber-400/50 text-amber-300"
+                  title="No model scores were supplied, so these are example values, not a real evaluation."
+                >
+                  SIMULATED
+                </span>
+              )}
             </h3>
             <p className="text-[11px] text-slate-400 font-mono">
               Concurrent multi-model arbitration across Google Gemini + Anthropic Claude
@@ -153,9 +164,11 @@ export default function DualModelConsensusGauge({
                 Google Gemini 1.5 Flash
               </span>
             </div>
-            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-blue-950/70 border border-blue-400/40 text-blue-300">
-              ⚡ {geminiLatencyMs}ms
-            </span>
+            {geminiLatencyMs !== undefined && (
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-blue-950/70 border border-blue-400/40 text-blue-300">
+                ⚡ {geminiLatencyMs}ms
+              </span>
+            )}
           </div>
 
           <div className="flex items-baseline justify-between mb-3 pb-2 border-b border-slate-800">
@@ -186,9 +199,11 @@ export default function DualModelConsensusGauge({
                 Claude 3.5 Haiku
               </span>
             </div>
-            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-950/70 border border-amber-400/40 text-amber-300">
-              ⚡ {claudeLatencyMs}ms
-            </span>
+            {claudeLatencyMs !== undefined && (
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-950/70 border border-amber-400/40 text-amber-300">
+                ⚡ {claudeLatencyMs}ms
+              </span>
+            )}
           </div>
 
           <div className="flex items-baseline justify-between mb-3 pb-2 border-b border-slate-800">
